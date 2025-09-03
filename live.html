@@ -9,7 +9,7 @@
     :root { --border:#d0d7de }
     body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
     header{padding:8px 12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border)}
-    #map{height:70vh; touch-action: manipulation;} /* bättre mobil-klick */
+    #map{height:60vh; touch-action: manipulation;} /* bättre mobil-klick */
     .pill{border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px}
     .box{padding:8px 12px}
     input,select,button{padding:6px 8px}
@@ -19,6 +19,11 @@
     .hidden{display:none}
     #players{font-size:12px;color:#444}
     #credit{position:fixed;right:10px;bottom:8px;opacity:.5;font-size:12px;pointer-events:none}
+    /* Modal för slutlig leaderboard */
+    #finalModal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;padding:16px}
+    #finalCard{background:#fff;border-radius:16px;padding:16px;max-width:420px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    #finalCard h2{margin:0 0 8px}
+    #finalList li{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee}
   </style>
 </head>
 <body>
@@ -29,33 +34,50 @@
   </header>
 
   <div class="box">
-    <div class="row">
+    <div class="row" style="align-items:flex-end">
+      <!-- Server-adress inbakad -->
       <input id="serverUrl" class="hidden" />
-      <label>Roll:</label>
-      <select id="role">
-        <option value="player">Spelare</option>
-        <option value="host">Host</option>
-      </select>
+      <div>
+        <label>Roll:</label>
+        <select id="role">
+          <option value="player">Spelare</option>
+          <option value="host">Host</option>
+        </select>
+      </div>
+
+      <!-- Host-inställningar -->
+      <div id="hostSettings" class="hidden">
+        <label style="margin-left:12px;display:block">Rondtid: <span id="roundTimeLabel">20</span>s</label>
+        <input id="roundTime" type="range" min="10" max="60" step="5" value="20" />
+        <label style="margin-left:12px;display:block">Frizon: <span id="freeRadiusLabel">10</span> km</label>
+        <input id="freeRadius" type="range" min="0" max="25" step="1" value="10" />
+      </div>
+
+      <button id="createGame" class="hidden">Skapa spel</button>
       <span class="pill" id="gameCode">Kod: —</span>
     </div>
 
-    <div id="hostPanel" class="row" style="margin-top:6px;display:none">
+    <div id="hostPanel" class="row hidden" style="margin-top:6px">
       <input id="cityName" placeholder="Skriv stad (t.ex. Linköping)" />
       <button id="startRound" disabled>Starta runda</button>
       <button id="nextRound" disabled>Nästa runda</button>
+      <button id="resetGame">Starta om (nollställ poäng)</button>
       <button id="endGame">Avsluta spel</button>
-    </div>
-
-    <div id="playerPanel" class="row" style="margin-top:6px">
-      <input id="joinCode" placeholder="Kod (6 siffror)" />
-      <input id="playerName" placeholder="Ditt namn" />
-      <button id="joinBtn">Gå med</button>
     </div>
 
     <div class="row" style="margin-top:6px; align-items:flex-start">
       <span class="pill" id="prompt">—</span>
       <span class="pill" id="totalMe">Totalt: 0.0 km</span>
-      <div id="players" class="hidden"></div>
+    </div>
+
+    <!-- Hostens lista + kick -->
+    <div id="players" class="hidden" style="margin-top:6px"></div>
+
+    <!-- Spelar-join -->
+    <div id="playerPanel" class="row" style="margin-top:6px">
+      <input id="joinCode" placeholder="Kod (6 siffror)" />
+      <input id="playerName" placeholder="Ditt namn" />
+      <button id="joinBtn">Gå med</button>
     </div>
   </div>
 
@@ -67,13 +89,24 @@
 
   <div id="credit">Ett spel av Jesper Pettersson</div>
 
+  <!-- Slutlig leaderboard -->
+  <div id="finalModal">
+    <div id="finalCard">
+      <h2>Slutställning</h2>
+      <ol id="finalList" style="padding-left:1.2em;margin:0 0 12px"></ol>
+      <div class="row">
+        <button id="finalClose">Stäng</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    // Din Render-URL
+    // ====== Din Render-URL (redan ifylld) ======
     const SERVER_URL = "https://geo-live-server.onrender.com";
 
-    // Låsning till hela världen (ingen kopia av Europa), fri zoom
+    // ---- Låsning till hela världen (ingen horisontell wrap), fri zoom ----
     const worldBounds = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
     const map = L.map('map', {
       zoomControl: true,
@@ -99,12 +132,20 @@
     // UI
     const status = document.getElementById('status');
     const roleSel = document.getElementById('role');
+    const hostSettings = document.getElementById('hostSettings');
+    const roundTime = document.getElementById('roundTime');
+    const freeRadius = document.getElementById('freeRadius');
+    const roundTimeLabel = document.getElementById('roundTimeLabel');
+    const freeRadiusLabel = document.getElementById('freeRadiusLabel');
+
     const hostPanel = document.getElementById('hostPanel');
+    const createGame = document.getElementById('createGame');
     const playerPanel = document.getElementById('playerPanel');
     const gameCode = document.getElementById('gameCode');
     const cityName = document.getElementById('cityName');
     const startRound = document.getElementById('startRound');
     const nextRound = document.getElementById('nextRound');
+    const resetGameBtn = document.getElementById('resetGame');
     const endGame = document.getElementById('endGame');
     const joinCode = document.getElementById('joinCode');
     const playerName = document.getElementById('playerName');
@@ -115,17 +156,31 @@
     const timerEl = document.getElementById('timer');
     const playersDiv = document.getElementById('players');
 
+    const finalModal = document.getElementById('finalModal');
+    const finalList = document.getElementById('finalList');
+    const finalClose = document.getElementById('finalClose');
+
     // State
     let socket = null, gameId = null, myRole = 'player', myPlayerName = '', myTotal = 0;
     let deadlineAt = null, timerTick = null;
+    let hostToken = null;
+
+    // sliders labels
+    roundTime.oninput = () => roundTimeLabel.textContent = roundTime.value;
+    freeRadius.oninput = () => freeRadiusLabel.textContent = freeRadius.value;
+    roundTime.oninput(); freeRadius.oninput();
 
     // Roll
     roleSel.onchange = () => {
       myRole = roleSel.value;
-      hostPanel.style.display = myRole === 'host' ? '' : 'none';
-      playerPanel.style.display = myRole === 'player' ? '' : 'none';
-      playersDiv.classList.toggle('hidden', myRole !== 'host');
-      if (myRole === 'host') ensureConnectedAndCreate();
+      const isHost = myRole === 'host';
+      hostSettings.classList.toggle('hidden', !isHost);
+      createGame.classList.toggle('hidden', !isHost);
+      hostPanel.classList.toggle('hidden', !isHost);
+      playerPanel.classList.toggle('hidden', isHost);
+      playersDiv.classList.toggle('hidden', !isHost);
+
+      if (isHost) tryReclaimOrEnableCreate();
     };
     roleSel.onchange();
 
@@ -136,30 +191,53 @@
       socket.on('connect', () => status.textContent = 'Ansluten');
       socket.on('disconnect', () => status.textContent = 'Inte ansluten');
 
-      socket.on('game:created', ({ gameId: gid, code }) => {
-        gameId = gid;
-        gameCode.textContent = 'Kod: ' + code;
+      // === Spelstatus / skapande ===
+      socket.on('game:created', (payload) => {
+        gameId = payload.gameId;
+        hostToken = payload.hostToken || hostToken;
+        gameCode.textContent = 'Kod: ' + payload.code;
         startRound.disabled = false;
+        // spara för återtag
+        try {
+          localStorage.setItem('hostGameId', gameId);
+          localStorage.setItem('hostToken', hostToken || '');
+        } catch {}
       });
-      socket.on('player:joined', ({ gameId: gid }) => { gameId = gid; });
 
+      socket.on('game:state', ({ state, round, players, current }) => {
+        // återtag: visa lista & status
+        renderPlayers(players || []);
+        if (state === 'in_round' && current) {
+          deadlineAt = current.deadlineAt;
+          startTimer();
+          promptEl.textContent = `Runda ${round}: ${current.cityName} – pågår`;
+          nextRound.disabled = true;
+          startRound.disabled = true;
+        } else if (state === 'lobby') {
+          promptEl.textContent = 'Redo att starta runda.';
+          nextRound.disabled = true;
+          startRound.disabled = false;
+        } else if (state === 'showing_results') {
+          promptEl.textContent = 'Runda klar.';
+          nextRound.disabled = false;
+          startRound.disabled = true;
+        }
+      });
+
+      // === Lobby / spelare ===
       socket.on('lobby:update', ({ players }) => {
-        if (myRole !== 'host') return;
-        const names = players.map(p => p.name).join(' · ');
-        playersDiv.innerHTML = names ? `<span class="pill">Spelare: ${names}</span>` : '';
+        if (myRole === 'host') renderPlayers(players || []);
       });
 
+      // === Runda ===
       socket.on('round:started', ({ round, cityName, deadlineAt: dl }) => {
         roundLayer.clearLayers();
         promptEl.textContent = `Runda ${round}: ${cityName} – gissa på kartan!`;
         resultsEl.textContent = 'Rundan pågår...';
         deadlineAt = dl;
         nextRound.disabled = true;
-        if (timerTick) clearInterval(timerTick);
-        timerTick = setInterval(()=> {
-          const s = Math.max(0, Math.ceil((deadlineAt - Date.now())/1000));
-          timerEl.textContent = '⏱ ' + s + 's';
-        }, 200);
+        startRound.disabled = true;
+        startTimer();
       });
 
       socket.on('guess:accepted', ({ km }) => {
@@ -167,8 +245,7 @@
       });
 
       socket.on('round:results', ({ city, results }) => {
-        if (timerTick) { clearInterval(timerTick); timerTick = null; timerEl.textContent = '⏱ —'; }
-
+        stopTimer();
         L.marker([city.lat, city.lng]).addTo(roundLayer).bindPopup(`Facit: ${city.name}`).openPopup();
         L.circle([city.lat, city.lng], { radius: 10000, color: '#7cc5ff', weight: 1, dashArray: '4 4' }).addTo(roundLayer);
 
@@ -193,24 +270,113 @@
         roundLayer.clearLayers();
         promptEl.textContent = 'Redo för nästa runda.';
         resultsEl.textContent = '—';
+        startRound.disabled = false;
+        nextRound.disabled = true;
       });
 
+      socket.on('round:error', ({ message }) => {
+        alert(message || 'Fel vid start av runda');
+        promptEl.textContent = 'Fel vid start – prova en annan stad.';
+        startRound.disabled = false;
+        nextRound.disabled = true;
+      });
+
+      // === Slutlig leaderboard ===
       socket.on('game:final', ({ leaderboard }) => {
-        resultsEl.innerHTML = '<strong>Slutställning</strong><br/>' +
-          leaderboard.map((r,i)=> `${i+1}. ${r.name} – ${r.totalKm} km`).join('<br/>');
+        stopTimer();
+        renderFinal(leaderboard || []);
       });
 
-      socket.on('round:error', ({ message }) => alert(message || 'Fel vid start av runda'));
+      // === Kickad spelare ===
+      socket.on('player:kicked', () => {
+        alert('Du blev kickad av host.');
+        location.reload();
+      });
+
+      // === Settings uppdaterade (om host justerar mitt i) ===
+      socket.on('settings:update', ({ roundTimeSec, freeRadiusKm }) => {
+        roundTime.value = roundTimeSec; freeRadius.value = freeRadiusKm;
+        roundTime.oninput(); freeRadius.oninput();
+      });
+
+      // Spelare får gameId lokalt (för säker gissning)
+      socket.on('player:joined', ({ gameId: gid }) => { gameId = gid; });
+
       return true;
     }
 
-    // Host: skapa spel när host-läge väljs
-    function ensureConnectedAndCreate() {
-      if (!connect()) return;
-      socket.emit('host:createGame', { roundTimeSec: 20, penaltyKm: 20000 });
+    // Timer helpers
+    function startTimer() {
+      stopTimer();
+      timerTick = setInterval(()=> {
+        const s = Math.max(0, Math.ceil((deadlineAt - Date.now())/1000));
+        timerEl.textContent = '⏱ ' + s + 's';
+        if (s <= 0) stopTimer();
+      }, 200);
+    }
+    function stopTimer() {
+      if (timerTick) clearInterval(timerTick);
+      timerTick = null;
+      timerEl.textContent = '⏱ —';
     }
 
-    // Host: starta runda (geokodar stad på servern)
+    // Rendera spelare m. kick
+    function renderPlayers(players) {
+      playersDiv.innerHTML = '';
+      if (!players || !players.length) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'row';
+      players.forEach(p => {
+        const btn = document.createElement('button');
+        btn.textContent = `Kicka ${p.name}`;
+        btn.onclick = () => socket.emit('host:kickPlayer', { gameId, playerId: p.id });
+        wrap.appendChild(btn);
+      });
+      playersDiv.appendChild(wrap);
+    }
+
+    // Slutlig modal
+    function renderFinal(list) {
+      finalList.innerHTML = '';
+      list.forEach((r, i) => {
+        const li = document.createElement('li');
+        const rank = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+        li.innerHTML = `<span>${rank} ${r.name}</span><strong>${r.totalKm} km</strong>`;
+        finalList.appendChild(li);
+      });
+      finalModal.style.display = 'flex';
+    }
+    finalClose.onclick = () => { finalModal.style.display = 'none'; };
+
+    // Reclaim om möjligt
+    function tryReclaimOrEnableCreate() {
+      if (!connect()) return;
+      const storedGameId = localStorage.getItem('hostGameId');
+      const storedToken = localStorage.getItem('hostToken');
+      if (storedGameId && storedToken) {
+        socket.emit('host:reclaim', { gameId: storedGameId, hostToken: storedToken });
+        // Om reclaim misslyckas, servern svarar 'host:reclaim:failed' (lyssna en gång)
+        socket.once('host:reclaim:failed', () => {
+          createGame.disabled = false;
+          startRound.disabled = true;
+        });
+      } else {
+        createGame.disabled = false;
+        startRound.disabled = true;
+      }
+    }
+
+    // === Host: skapa spel efter att ha valt inställningar ===
+    createGame.onclick = () => {
+      if (!connect()) return;
+      createGame.disabled = true;
+      socket.emit('host:createGame', {
+        roundTimeSec: parseInt(roundTime.value, 10),
+        freeRadiusKm: parseInt(freeRadius.value, 10)
+      });
+    };
+
+    // Host: starta / nästa / reset / avsluta
     startRound.onclick = () => {
       const name = (cityName.value || '').trim();
       if (!name) return alert('Skriv en stad, t.ex. Linköping');
@@ -218,6 +384,7 @@
       startRound.disabled = true; nextRound.disabled = true;
     };
     nextRound.onclick = () => { socket.emit('host:nextRound', { gameId }); startRound.disabled = false; };
+    resetGameBtn.onclick = () => { socket.emit('host:resetGame', { gameId }); myTotal = 0; totalMe.textContent = 'Totalt: 0.0 km'; roundLayer.clearLayers(); resultsEl.textContent = '—'; promptEl.textContent = 'Nollställt. Redo att starta runda.'; };
     endGame.onclick = () => { socket.emit('host:endGame', { gameId }); };
 
     // Spelare: gå med
