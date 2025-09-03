@@ -6,15 +6,17 @@
   <title>Live Kart-Quiz</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
+    :root { --border:#d0d7de }
     body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
-    header{padding:8px 12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #ddd}
+    header{padding:8px 12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border)}
     #map{height:70vh}
-    .pill{border:1px solid #ccc;border-radius:999px;padding:2px 8px;font-size:12px}
+    .pill{border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px}
     .box{padding:8px 12px}
     input,select,button{padding:6px 8px}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     .muted{color:#666;font-size:12px}
     button{cursor:pointer}
+    .hidden{display:none}
   </style>
 </head>
 <body>
@@ -26,8 +28,8 @@
 
   <div class="box">
     <div class="row">
-      <label>Server-URL:</label>
-      <input id="serverUrl" placeholder="t.ex. https://ditt-projekt.onrender.com" style="min-width:260px" />
+      <!-- Server-fältet är dolt; vi använder inbakad URL -->
+      <input id="serverUrl" class="hidden" />
       <label>Roll:</label>
       <select id="role">
         <option value="player">Spelare</option>
@@ -66,14 +68,27 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
+    // ====== 1) SERVER-ADRESS (BYT DENNA RAD TILL DIN RENDER-URL) ======
+    const SERVER_URL = "https://geo-live-server.onrender.com"; // <— BYT till din riktiga URL
+
+    // Tillfällig override via ?server=... i sidans URL (praktiskt för test)
+    function getServerUrl() {
+      try {
+        const params = new URLSearchParams(location.search);
+        const override = params.get('server');
+        return override ? override : SERVER_URL;
+      } catch { return SERVER_URL; }
+    }
+
+    // ==== 2) KARTA (utan labels) ====
     const map = L.map('map', { zoomControl:true, attributionControl:false }).setView([25,10], 2);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
       maxZoom: 19, subdomains: 'abcd', attribution: '© OpenStreetMap, © CARTO'
     }).addTo(map);
 
+    // ==== 3) UI-referenser ====
     const status = document.getElementById('status');
     const roleSel = document.getElementById('role');
-    const serverUrl = document.getElementById('serverUrl');
     const hostPanel = document.getElementById('hostPanel');
     const playerPanel = document.getElementById('playerPanel');
     const createGame = document.getElementById('createGame');
@@ -91,9 +106,11 @@
     const resultsEl = document.getElementById('results');
     const timerEl = document.getElementById('timer');
 
+    // ==== 4) Socket/State ====
     let socket = null, gameId = null, myRole = 'player', myPlayerName = '', myTotal = 0;
     let selectingTarget = false, targetMarker = null, deadlineAt = null, timerTick = null;
 
+    // Roll-växling
     roleSel.onchange = () => {
       myRole = roleSel.value;
       hostPanel.style.display = myRole === 'host' ? '' : 'none';
@@ -101,23 +118,26 @@
     };
     roleSel.onchange();
 
+    // Anslut till servern (ingen manuell inmatning krävs)
     function connect() {
-      if (!serverUrl.value) { alert('Skriv server-adressen, t.ex. https://ditt-projekt.onrender.com'); return false; }
+      const url = getServerUrl();
       if (socket) socket.disconnect();
-      socket = io(serverUrl.value, { transports: ['websocket'] });
-      socket.on('connect', ()=> status.textContent = 'Ansluten');
-      socket.on('disconnect', ()=> status.textContent = 'Inte ansluten');
+      socket = io(url, { transports: ['websocket'] });
 
+      socket.on('connect', () => { status.textContent = 'Ansluten'; });
+      socket.on('disconnect', () => { status.textContent = 'Inte ansluten'; });
+
+      // ---- Server-händelser ----
       socket.on('game:created', ({ gameId: gid, code }) => { gameId = gid; gameCode.textContent = 'Kod: ' + code; });
-      socket.on('player:joined', ({ name }) => {});
-      socket.on('lobby:update', ({ players }) => {});
+      socket.on('player:joined', ({ name }) => { /* valfritt: visa välkomsttext */ });
+      socket.on('lobby:update', ({ players }) => { /* valfritt: rendera lista */ });
 
       socket.on('round:started', ({ round, cityName, deadlineAt: dl }) => {
         promptEl.textContent = `Runda ${round}: ${cityName} – klicka på kartan!`;
         resultsEl.textContent = 'Rundan pågår...';
         deadlineAt = dl;
         if (timerTick) clearInterval(timerTick);
-        timerTick = setInterval(()=>{
+        timerTick = setInterval(() => {
           const s = Math.max(0, Math.ceil((deadlineAt - Date.now())/1000));
           timerEl.textContent = '⏱ ' + s + 's';
         }, 200);
@@ -132,19 +152,34 @@
         if (timerTick) { clearInterval(timerTick); timerTick = null; timerEl.textContent = '⏱ —'; }
         if (targetMarker) { map.removeLayer(targetMarker); targetMarker = null; }
 
-        targetMarker = L.marker([city.lat, city.lng]).addTo(map).bindPopup(`Facit: ${city.name}`).openPopup();
-        L.circle([city.lat, city.lng], { radius: 10000, color: '#7cc5ff', weight: 1, dashArray: '4 4' }).addTo(map);
+        // Facit
+        targetMarker = L
+          .marker([city.lat, city.lng])
+          .addTo(map)
+          .bindPopup(`Facit: ${city.name}`)
+          .openPopup();
 
+        L.circle([city.lat, city.lng], {
+          radius: 10000, color: '#7cc5ff', weight: 1, dashArray: '4 4'
+        }).addTo(map);
+
+        // Lista resultat
         resultsEl.innerHTML = '<strong>Resultat:</strong><br/>' +
           results.map(r => `${r.name}: ${r.km} km (totalt ${r.totalKm} km)`).join('<br/>');
 
+        // Uppdatera min totalsumma
         const me = results.find(r => r.name === myPlayerName);
         if (me) { myTotal = me.totalKm; totalMe.textContent = 'Totalt: ' + myTotal + ' km'; }
 
+        // Rita spelarnas gissningar
         results.forEach(r => {
           if (r.guess) {
-            L.circleMarker([r.guess.lat, r.guess.lng], { radius: 7, weight: 2, color: '#000', fillColor: '#7cc5ff', fillOpacity: 0.9 }).addTo(map);
-            L.polyline([[r.guess.lat, r.guess.lng],[city.lat, city.lng]], { weight:2, opacity:.7, dashArray:'4 6' }).addTo(map);
+            L.circleMarker([r.guess.lat, r.guess.lng], {
+              radius: 7, weight: 2, color: '#000', fillColor: '#7cc5ff', fillOpacity: 0.9
+            }).addTo(map);
+            L.polyline([[r.guess.lat, r.guess.lng], [city.lat, city.lng]], {
+              weight: 2, opacity: .7, dashArray: '4 6'
+            }).addTo(map);
           }
         });
 
@@ -161,19 +196,31 @@
       return true;
     }
 
-    // Host
-    createGame.onclick = () => { if (connect()) socket.emit('host:createGame', { roundTimeSec: 10, penaltyKm: 20000 }); };
+    // ==== 5) Host-flöde ====
+    createGame.onclick = () => {
+      if (connect()) socket.emit('host:createGame', { roundTimeSec: 10, penaltyKm: 20000 });
+    };
+
     let chosenTarget = null;
-    pickTarget.onclick = () => { selectingTarget = true; alert('Klicka på kartan där staden är.'); };
+
+    pickTarget.onclick = () => {
+      if (!socket) { if (!connect()) return; }
+      alert('Klicka på kartan där staden är.');
+      selectingTarget = true;
+    };
+
     startRound.onclick = () => {
       if (!chosenTarget) return alert('Välj plats först.');
-      socket.emit('host:startRound', { gameId, cityName: cityName.value || 'Okänd', lat: chosenTarget.lat, lng: chosenTarget.lng });
+      socket.emit('host:startRound', {
+        gameId, cityName: cityName.value || 'Okänd', lat: chosenTarget.lat, lng: chosenTarget.lng
+      });
       startRound.disabled = true; nextRound.disabled = true;
     };
+
     nextRound.onclick = () => { socket.emit('host:nextRound', { gameId }); startRound.disabled = false; };
     endGame.onclick = () => { socket.emit('host:endGame', { gameId }); };
 
-    // Spelare
+    // ==== 6) Spelar-flöde ====
     joinBtn.onclick = () => {
       if (!connect()) return;
       const code = (joinCode.value || '').replace(/\D/g,'');
@@ -181,15 +228,19 @@
       socket.emit('player:join', { code, name: myPlayerName });
     };
 
-    // Klick på kartan
+    // ==== 7) Kart-klick ====
     map.on('click', (e) => {
       if (myRole === 'host' && selectingTarget) {
         chosenTarget = { lat: e.latlng.lat, lng: e.latlng.lng };
         if (targetMarker) map.removeLayer(targetMarker);
-        targetMarker = L.marker([chosenTarget.lat, chosenTarget.lng]).addTo(map).bindPopup('Målplats vald').openPopup();
+        targetMarker = L
+          .marker([chosenTarget.lat, chosenTarget.lng])
+          .addTo(map)
+          .bindPopup('Målplats vald')
+          .openPopup();
         selectingTarget = false;
         startRound.disabled = false;
-      } else if (myRole === 'player' && gameId) {
+      } else if (myRole === 'player' && gameId && socket) {
         socket.emit('player:submitGuess', { gameId, lat: e.latlng.lat, lng: e.latlng.lng });
       }
     });
