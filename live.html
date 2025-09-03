@@ -9,7 +9,7 @@
     :root { --border:#d0d7de }
     body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
     header{padding:8px 12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border)}
-    #map{height:70vh; touch-action: manipulation;}
+    #map{height:70vh; touch-action: manipulation;} /* bättre mobil-klick */
     .pill{border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px}
     .box{padding:8px 12px}
     input,select,button{padding:6px 8px}
@@ -30,7 +30,6 @@
 
   <div class="box">
     <div class="row">
-      <!-- Server-adress inbakad, inget att fylla i -->
       <input id="serverUrl" class="hidden" />
       <label>Roll:</label>
       <select id="role">
@@ -56,7 +55,6 @@
     <div class="row" style="margin-top:6px; align-items:flex-start">
       <span class="pill" id="prompt">—</span>
       <span class="pill" id="totalMe">Totalt: 0.0 km</span>
-      <!-- Hostens lista över anslutna -->
       <div id="players" class="hidden"></div>
     </div>
   </div>
@@ -72,16 +70,33 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    // ====== Sätt din serveradress här (Render-URL) ======
-    const SERVER_URL = "https://geo-live-server.onrender.com"; // <-- BYT till din riktiga https-URL
+    // Din Render-URL
+    const SERVER_URL = "https://geo-live-server.onrender.com";
 
-    // Karta utan labels
-    const map = L.map('map', { zoomControl:true, attributionControl:false }).setView([25,10], 2);
+    // Låsning till hela världen (ingen kopia av Europa), fri zoom
+    const worldBounds = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
+    const map = L.map('map', {
+      zoomControl: true,
+      attributionControl: false,
+      minZoom: 1,
+      maxBounds: worldBounds,
+      maxBoundsViscosity: 1.0,
+      worldCopyJump: false
+    }).setView([25, 10], 2);
+    map.setMaxBounds(worldBounds);
+
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, subdomains: 'abcd', attribution: '© OpenStreetMap, © CARTO'
+      maxZoom: 19,
+      subdomains: 'abcd',
+      noWrap: true,
+      bounds: worldBounds,
+      attribution: '© OpenStreetMap, © CARTO'
     }).addTo(map);
 
-    // UI-referenser
+    // Rensningslager per runda
+    let roundLayer = L.layerGroup().addTo(map);
+
+    // UI
     const status = document.getElementById('status');
     const roleSel = document.getElementById('role');
     const hostPanel = document.getElementById('hostPanel');
@@ -104,7 +119,7 @@
     let socket = null, gameId = null, myRole = 'player', myPlayerName = '', myTotal = 0;
     let deadlineAt = null, timerTick = null;
 
-    // Roll-växling
+    // Roll
     roleSel.onchange = () => {
       myRole = roleSel.value;
       hostPanel.style.display = myRole === 'host' ? '' : 'none';
@@ -121,19 +136,13 @@
       socket.on('connect', () => status.textContent = 'Ansluten');
       socket.on('disconnect', () => status.textContent = 'Inte ansluten');
 
-      // Server-händelser
       socket.on('game:created', ({ gameId: gid, code }) => {
         gameId = gid;
         gameCode.textContent = 'Kod: ' + code;
-        startRound.disabled = false; // host kan starta runda
+        startRound.disabled = false;
       });
+      socket.on('player:joined', ({ gameId: gid }) => { gameId = gid; });
 
-      // VIKTIGT: Sätt gameId för spelare (fixar klick-problemet)
-      socket.on('player:joined', ({ gameId: gid }) => {
-        gameId = gid;
-      });
-
-      // Hostens lista över spelare
       socket.on('lobby:update', ({ players }) => {
         if (myRole !== 'host') return;
         const names = players.map(p => p.name).join(' · ');
@@ -141,6 +150,7 @@
       });
 
       socket.on('round:started', ({ round, cityName, deadlineAt: dl }) => {
+        roundLayer.clearLayers();
         promptEl.textContent = `Runda ${round}: ${cityName} – gissa på kartan!`;
         resultsEl.textContent = 'Rundan pågår...';
         deadlineAt = dl;
@@ -159,23 +169,19 @@
       socket.on('round:results', ({ city, results }) => {
         if (timerTick) { clearInterval(timerTick); timerTick = null; timerEl.textContent = '⏱ —'; }
 
-        // Facit
-        L.marker([city.lat, city.lng]).addTo(map).bindPopup(`Facit: ${city.name}`).openPopup();
-        L.circle([city.lat, city.lng], { radius: 10000, color: '#7cc5ff', weight: 1, dashArray: '4 4' }).addTo(map);
+        L.marker([city.lat, city.lng]).addTo(roundLayer).bindPopup(`Facit: ${city.name}`).openPopup();
+        L.circle([city.lat, city.lng], { radius: 10000, color: '#7cc5ff', weight: 1, dashArray: '4 4' }).addTo(roundLayer);
 
-        // Lista resultat
         resultsEl.innerHTML = '<strong>Resultat:</strong><br/>' +
           results.map(r => `${r.name}: ${r.km} km (totalt ${r.totalKm} km)`).join('<br/>');
 
-        // Min totalsumma
         const me = results.find(r => r.name === myPlayerName);
         if (me) { myTotal = me.totalKm; totalMe.textContent = 'Totalt: ' + myTotal + ' km'; }
 
-        // Rita gissningar
         results.forEach(r => {
           if (r.guess) {
-            L.circleMarker([r.guess.lat, r.guess.lng], { radius: 7, weight: 2, color: '#000', fillColor: '#7cc5ff', fillOpacity: 0.9 }).addTo(map);
-            L.polyline([[r.guess.lat, r.guess.lng],[city.lat, city.lng]], { weight:2, opacity:.7, dashArray:'4 6' }).addTo(map);
+            L.circleMarker([r.guess.lat, r.guess.lng], { radius: 7, weight: 2, color: '#000', fillColor: '#7cc5ff', fillOpacity: 0.9 }).addTo(roundLayer);
+            L.polyline([[r.guess.lat, r.guess.lng],[city.lat, city.lng]], { weight:2, opacity:.7, dashArray:'4 6' }).addTo(roundLayer);
           }
         });
 
@@ -183,7 +189,12 @@
         promptEl.textContent = 'Runda klar.';
       });
 
-      socket.on('lobby:ready', () => { promptEl.textContent = 'Redo för nästa runda.'; resultsEl.textContent = '—'; });
+      socket.on('lobby:ready', () => {
+        roundLayer.clearLayers();
+        promptEl.textContent = 'Redo för nästa runda.';
+        resultsEl.textContent = '—';
+      });
+
       socket.on('game:final', ({ leaderboard }) => {
         resultsEl.innerHTML = '<strong>Slutställning</strong><br/>' +
           leaderboard.map((r,i)=> `${i+1}. ${r.name} – ${r.totalKm} km`).join('<br/>');
@@ -193,13 +204,13 @@
       return true;
     }
 
-    // Host: skapa spel direkt när host-läge väljs (så koden visas)
+    // Host: skapa spel när host-läge väljs
     function ensureConnectedAndCreate() {
       if (!connect()) return;
-      socket.emit('host:createGame', { roundTimeSec: 20, penaltyKm: 20000 }); // 20s ronder
+      socket.emit('host:createGame', { roundTimeSec: 20, penaltyKm: 20000 });
     }
 
-    // Host: starta runda genom att skriva stad (servern geokodar)
+    // Host: starta runda (geokodar stad på servern)
     startRound.onclick = () => {
       const name = (cityName.value || '').trim();
       if (!name) return alert('Skriv en stad, t.ex. Linköping');
