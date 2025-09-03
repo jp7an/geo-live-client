@@ -9,7 +9,7 @@
     :root { --border:#d0d7de }
     body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
     header{padding:8px 12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border)}
-    #map{height:70vh}
+    #map{height:70vh; touch-action: manipulation;}
     .pill{border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px}
     .box{padding:8px 12px}
     input,select,button{padding:6px 8px}
@@ -17,6 +17,8 @@
     .muted{color:#666;font-size:12px}
     button{cursor:pointer}
     .hidden{display:none}
+    #players{font-size:12px;color:#444}
+    #credit{position:fixed;right:10px;bottom:8px;opacity:.5;font-size:12px;pointer-events:none}
   </style>
 </head>
 <body>
@@ -51,9 +53,11 @@
       <button id="joinBtn">Gå med</button>
     </div>
 
-    <div class="row" style="margin-top:6px">
+    <div class="row" style="margin-top:6px; align-items:flex-start">
       <span class="pill" id="prompt">—</span>
       <span class="pill" id="totalMe">Totalt: 0.0 km</span>
+      <!-- Hostens lista över anslutna -->
+      <div id="players" class="hidden"></div>
     </div>
   </div>
 
@@ -62,6 +66,8 @@
   <div class="box">
     <div id="results" class="muted">Resultat visas här efter varje runda.</div>
   </div>
+
+  <div id="credit">Ett spel av Jesper Pettersson</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -92,6 +98,7 @@
     const totalMe = document.getElementById('totalMe');
     const resultsEl = document.getElementById('results');
     const timerEl = document.getElementById('timer');
+    const playersDiv = document.getElementById('players');
 
     // State
     let socket = null, gameId = null, myRole = 'player', myPlayerName = '', myTotal = 0;
@@ -102,6 +109,7 @@
       myRole = roleSel.value;
       hostPanel.style.display = myRole === 'host' ? '' : 'none';
       playerPanel.style.display = myRole === 'player' ? '' : 'none';
+      playersDiv.classList.toggle('hidden', myRole !== 'host');
       if (myRole === 'host') ensureConnectedAndCreate();
     };
     roleSel.onchange();
@@ -114,9 +122,23 @@
       socket.on('disconnect', () => status.textContent = 'Inte ansluten');
 
       // Server-händelser
-      socket.on('game:created', ({ gameId: gid, code }) => { gameId = gid; gameCode.textContent = 'Kod: ' + code; startRound.disabled = false; });
-      socket.on('player:joined', ({ name }) => { /* valfritt */ });
-      socket.on('lobby:update', ({ players }) => { /* valfritt */ });
+      socket.on('game:created', ({ gameId: gid, code }) => {
+        gameId = gid;
+        gameCode.textContent = 'Kod: ' + code;
+        startRound.disabled = false; // host kan starta runda
+      });
+
+      // VIKTIGT: Sätt gameId för spelare (fixar klick-problemet)
+      socket.on('player:joined', ({ gameId: gid }) => {
+        gameId = gid;
+      });
+
+      // Hostens lista över spelare
+      socket.on('lobby:update', ({ players }) => {
+        if (myRole !== 'host') return;
+        const names = players.map(p => p.name).join(' · ');
+        playersDiv.innerHTML = names ? `<span class="pill">Spelare: ${names}</span>` : '';
+      });
 
       socket.on('round:started', ({ round, cityName, deadlineAt: dl }) => {
         promptEl.textContent = `Runda ${round}: ${cityName} – gissa på kartan!`;
@@ -136,6 +158,7 @@
 
       socket.on('round:results', ({ city, results }) => {
         if (timerTick) { clearInterval(timerTick); timerTick = null; timerEl.textContent = '⏱ —'; }
+
         // Facit
         L.marker([city.lat, city.lng]).addTo(map).bindPopup(`Facit: ${city.name}`).openPopup();
         L.circle([city.lat, city.lng], { radius: 10000, color: '#7cc5ff', weight: 1, dashArray: '4 4' }).addTo(map);
@@ -173,7 +196,7 @@
     // Host: skapa spel direkt när host-läge väljs (så koden visas)
     function ensureConnectedAndCreate() {
       if (!connect()) return;
-      socket.emit('host:createGame', { roundTimeSec: 10, penaltyKm: 20000 });
+      socket.emit('host:createGame', { roundTimeSec: 20, penaltyKm: 20000 }); // 20s ronder
     }
 
     // Host: starta runda genom att skriva stad (servern geokodar)
