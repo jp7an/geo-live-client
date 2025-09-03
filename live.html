@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Live Kart-Quiz</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
+    header{padding:8px 12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #ddd}
+    #map{height:70vh}
+    .pill{border:1px solid #ccc;border-radius:999px;padding:2px 8px;font-size:12px}
+    .box{padding:8px 12px}
+    input,select,button{padding:6px 8px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .muted{color:#666;font-size:12px}
+    button{cursor:pointer}
+  </style>
+</head>
+<body>
+  <header class="row">
+    <strong>Live Kart-Quiz</strong>
+    <span id="status" class="muted">Inte ansluten</span>
+    <span class="pill" id="timer">⏱ —</span>
+  </header>
+
+  <div class="box">
+    <div class="row">
+      <label>Server-URL:</label>
+      <input id="serverUrl" placeholder="t.ex. https://ditt-projekt.onrender.com" style="min-width:260px" />
+      <label>Roll:</label>
+      <select id="role">
+        <option value="player">Spelare</option>
+        <option value="host">Host</option>
+      </select>
+    </div>
+
+    <div id="hostPanel" class="row" style="margin-top:6px;display:none">
+      <button id="createGame">Skapa spel</button>
+      <span class="pill" id="gameCode">Kod: —</span>
+      <input id="cityName" placeholder="Stadsnamn (etikett)" />
+      <button id="pickTarget">Välj plats</button>
+      <button id="startRound" disabled>Starta runda</button>
+      <button id="nextRound" disabled>Nästa runda</button>
+      <button id="endGame">Avsluta</button>
+    </div>
+
+    <div id="playerPanel" class="row" style="margin-top:6px">
+      <input id="joinCode" placeholder="Kod (6 siffror)" />
+      <input id="playerName" placeholder="Ditt namn" />
+      <button id="joinBtn">Gå med</button>
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <span class="pill" id="prompt">—</span>
+      <span class="pill" id="totalMe">Totalt: 0.0 km</span>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <div class="box">
+    <div id="results" class="muted">Resultat visas här efter varje runda.</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const map = L.map('map', { zoomControl:true, attributionControl:false }).setView([25,10], 2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19, subdomains: 'abcd', attribution: '© OpenStreetMap, © CARTO'
+    }).addTo(map);
+
+    const status = document.getElementById('status');
+    const roleSel = document.getElementById('role');
+    const serverUrl = document.getElementById('serverUrl');
+    const hostPanel = document.getElementById('hostPanel');
+    const playerPanel = document.getElementById('playerPanel');
+    const createGame = document.getElementById('createGame');
+    const gameCode = document.getElementById('gameCode');
+    const cityName = document.getElementById('cityName');
+    const pickTarget = document.getElementById('pickTarget');
+    const startRound = document.getElementById('startRound');
+    const nextRound = document.getElementById('nextRound');
+    const endGame = document.getElementById('endGame');
+    const joinCode = document.getElementById('joinCode');
+    const playerName = document.getElementById('playerName');
+    const joinBtn = document.getElementById('joinBtn');
+    const promptEl = document.getElementById('prompt');
+    const totalMe = document.getElementById('totalMe');
+    const resultsEl = document.getElementById('results');
+    const timerEl = document.getElementById('timer');
+
+    let socket = null, gameId = null, myRole = 'player', myPlayerName = '', myTotal = 0;
+    let selectingTarget = false, targetMarker = null, deadlineAt = null, timerTick = null;
+
+    roleSel.onchange = () => {
+      myRole = roleSel.value;
+      hostPanel.style.display = myRole === 'host' ? '' : 'none';
+      playerPanel.style.display = myRole === 'player' ? '' : 'none';
+    };
+    roleSel.onchange();
+
+    function connect() {
+      if (!serverUrl.value) { alert('Skriv server-adressen, t.ex. https://ditt-projekt.onrender.com'); return false; }
+      if (socket) socket.disconnect();
+      socket = io(serverUrl.value, { transports: ['websocket'] });
+      socket.on('connect', ()=> status.textContent = 'Ansluten');
+      socket.on('disconnect', ()=> status.textContent = 'Inte ansluten');
+
+      socket.on('game:created', ({ gameId: gid, code }) => { gameId = gid; gameCode.textContent = 'Kod: ' + code; });
+      socket.on('player:joined', ({ name }) => {});
+      socket.on('lobby:update', ({ players }) => {});
+
+      socket.on('round:started', ({ round, cityName, deadlineAt: dl }) => {
+        promptEl.textContent = `Runda ${round}: ${cityName} – klicka på kartan!`;
+        resultsEl.textContent = 'Rundan pågår...';
+        deadlineAt = dl;
+        if (timerTick) clearInterval(timerTick);
+        timerTick = setInterval(()=>{
+          const s = Math.max(0, Math.ceil((deadlineAt - Date.now())/1000));
+          timerEl.textContent = '⏱ ' + s + 's';
+        }, 200);
+        nextRound.disabled = true;
+      });
+
+      socket.on('guess:accepted', ({ km }) => {
+        resultsEl.textContent = `Din gissning: ${km.toFixed ? km.toFixed(1) : km} km`;
+      });
+
+      socket.on('round:results', ({ city, results }) => {
+        if (timerTick) { clearInterval(timerTick); timerTick = null; timerEl.textContent = '⏱ —'; }
+        if (targetMarker) { map.removeLayer(targetMarker); targetMarker = null; }
+
+        targetMarker = L.marker([city.lat, city.lng]).addTo(map).bindPopup(`Facit: ${city.name}`).openPopup();
+        L.circle([city.lat, city.lng], { radius: 10000, color: '#7cc5ff', weight: 1, dashArray: '4 4' }).addTo(map);
+
+        resultsEl.innerHTML = '<strong>Resultat:</strong><br/>' +
+          results.map(r => `${r.name}: ${r.km} km (totalt ${r.totalKm} km)`).join('<br/>');
+
+        const me = results.find(r => r.name === myPlayerName);
+        if (me) { myTotal = me.totalKm; totalMe.textContent = 'Totalt: ' + myTotal + ' km'; }
+
+        results.forEach(r => {
+          if (r.guess) {
+            L.circleMarker([r.guess.lat, r.guess.lng], { radius: 7, weight: 2, color: '#000', fillColor: '#7cc5ff', fillOpacity: 0.9 }).addTo(map);
+            L.polyline([[r.guess.lat, r.guess.lng],[city.lat, city.lng]], { weight:2, opacity:.7, dashArray:'4 6' }).addTo(map);
+          }
+        });
+
+        if (myRole === 'host') nextRound.disabled = false;
+        promptEl.textContent = 'Runda klar.';
+      });
+
+      socket.on('lobby:ready', () => { promptEl.textContent = 'Redo för nästa runda.'; resultsEl.textContent = '—'; });
+      socket.on('game:final', ({ leaderboard }) => {
+        resultsEl.innerHTML = '<strong>Slutställning</strong><br/>' +
+          leaderboard.map((r,i)=> `${i+1}. ${r.name} – ${r.totalKm} km`).join('<br/>');
+      });
+
+      return true;
+    }
+
+    // Host
+    createGame.onclick = () => { if (connect()) socket.emit('host:createGame', { roundTimeSec: 10, penaltyKm: 20000 }); };
+    let chosenTarget = null;
+    pickTarget.onclick = () => { selectingTarget = true; alert('Klicka på kartan där staden är.'); };
+    startRound.onclick = () => {
+      if (!chosenTarget) return alert('Välj plats först.');
+      socket.emit('host:startRound', { gameId, cityName: cityName.value || 'Okänd', lat: chosenTarget.lat, lng: chosenTarget.lng });
+      startRound.disabled = true; nextRound.disabled = true;
+    };
+    nextRound.onclick = () => { socket.emit('host:nextRound', { gameId }); startRound.disabled = false; };
+    endGame.onclick = () => { socket.emit('host:endGame', { gameId }); };
+
+    // Spelare
+    joinBtn.onclick = () => {
+      if (!connect()) return;
+      const code = (joinCode.value || '').replace(/\D/g,'');
+      myPlayerName = (playerName.value || 'Spelare').trim();
+      socket.emit('player:join', { code, name: myPlayerName });
+    };
+
+    // Klick på kartan
+    map.on('click', (e) => {
+      if (myRole === 'host' && selectingTarget) {
+        chosenTarget = { lat: e.latlng.lat, lng: e.latlng.lng };
+        if (targetMarker) map.removeLayer(targetMarker);
+        targetMarker = L.marker([chosenTarget.lat, chosenTarget.lng]).addTo(map).bindPopup('Målplats vald').openPopup();
+        selectingTarget = false;
+        startRound.disabled = false;
+      } else if (myRole === 'player' && gameId) {
+        socket.emit('player:submitGuess', { gameId, lat: e.latlng.lat, lng: e.latlng.lng });
+      }
+    });
+  </script>
+</body>
+</html>
