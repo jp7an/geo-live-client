@@ -402,6 +402,9 @@
         socket.emit('player:submitGuess', { gameId, lat: e.latlng.lat, lng: e.latlng.lng });
       }
     });
+
+    // Anslut automatiskt när sidan laddas
+    connect();
   </script>
 </body>
 </html>
