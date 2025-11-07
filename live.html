@@ -430,17 +430,7 @@
           map.removeLayer(myGuessMarker);
         }
         // Lägg till ny markör på klickad position
-        myGuessMarker = L.marker([e.latlng.lat, e.latlng.lng], {
-          icon: L.icon({
-            iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-            iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-            iconSize: [25, 41],
-            iconAnchor: [12, 41],
-            popupAnchor: [1, -34],
-            shadowSize: [41, 41]
-          })
-        }).addTo(map);
+        myGuessMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
         socket.emit('player:submitGuess', { gameId, lat: e.latlng.lat, lng: e.latlng.lng });
       }
     });
