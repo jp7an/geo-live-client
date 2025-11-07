@@ -166,6 +166,7 @@
     let socket = null, gameId = null, myRole = 'player', myPlayerName = '', myTotal = 0;
     let deadlineAt = null, timerTick = null;
     let hostToken = null;
+    let myGuessMarker = null; // Marker för spelarens aktiva gissning
 
     // sliders labels
     roundTime.oninput = () => roundTimeLabel.textContent = roundTime.value;
@@ -238,6 +239,11 @@
       // === Runda ===
       socket.on('round:started', ({ round, cityName, deadlineAt: dl }) => {
         roundLayer.clearLayers();
+        // Rensa spelarens gissningsmarkör
+        if (myGuessMarker) {
+          map.removeLayer(myGuessMarker);
+          myGuessMarker = null;
+        }
         promptEl.textContent = `Runda ${round}: ${cityName} – gissa på kartan!`;
         resultsEl.textContent = 'Rundan pågår...';
         deadlineAt = dl;
@@ -275,6 +281,11 @@
 
       socket.on('lobby:ready', () => {
         roundLayer.clearLayers();
+        // Rensa spelarens gissningsmarkör
+        if (myGuessMarker) {
+          map.removeLayer(myGuessMarker);
+          myGuessMarker = null;
+        }
         promptEl.textContent = 'Redo för nästa runda.';
         resultsEl.textContent = '—';
         startRound.disabled = false;
@@ -414,6 +425,12 @@
     // Spelare: klick på kartan = gissning
     map.on('click', (e) => {
       if (myRole === 'player' && gameId && socket) {
+        // Ta bort tidigare markör om den finns
+        if (myGuessMarker) {
+          map.removeLayer(myGuessMarker);
+        }
+        // Lägg till ny markör på klickad position
+        myGuessMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
         socket.emit('player:submitGuess', { gameId, lat: e.latlng.lat, lng: e.latlng.lng });
       }
     });
