@@ -60,6 +60,7 @@
     <div id="hostPanel" class="row hidden" style="margin-top:6px">
       <input id="cityName" placeholder="Skriv stad (t.ex. Linköping)" />
       <button id="startRound" disabled>Starta runda</button>
+      <button id="startRandomGame" disabled>Starta Slumpmässigt Spel</button>
       <button id="nextRound" disabled>Nästa runda</button>
       <button id="resetGame">Starta om (nollställ poäng)</button>
       <button id="endGame">Avsluta spel</button>
@@ -144,6 +145,7 @@
     const gameCode = document.getElementById('gameCode');
     const cityName = document.getElementById('cityName');
     const startRound = document.getElementById('startRound');
+    const startRandomGameBtn = document.getElementById('startRandomGame');
     const nextRound = document.getElementById('nextRound');
     const resetGameBtn = document.getElementById('resetGame');
     const endGame = document.getElementById('endGame');
@@ -197,6 +199,7 @@
         hostToken = payload.hostToken || hostToken;
         gameCode.textContent = 'Kod: ' + payload.code;
         startRound.disabled = false;
+        startRandomGameBtn.disabled = false;
         // spara för återtag
         try {
           localStorage.setItem('hostGameId', gameId);
@@ -213,14 +216,17 @@
           promptEl.textContent = `Runda ${round}: ${current.cityName} – pågår`;
           nextRound.disabled = true;
           startRound.disabled = true;
+          startRandomGameBtn.disabled = true;
         } else if (state === 'lobby') {
           promptEl.textContent = 'Redo att starta runda.';
           nextRound.disabled = true;
           startRound.disabled = false;
+          startRandomGameBtn.disabled = false;
         } else if (state === 'showing_results') {
           promptEl.textContent = 'Runda klar.';
           nextRound.disabled = false;
           startRound.disabled = true;
+          startRandomGameBtn.disabled = true;
         }
       });
 
@@ -237,6 +243,7 @@
         deadlineAt = dl;
         nextRound.disabled = true;
         startRound.disabled = true;
+        startRandomGameBtn.disabled = true;
         startTimer();
       });
 
@@ -271,6 +278,7 @@
         promptEl.textContent = 'Redo för nästa runda.';
         resultsEl.textContent = '—';
         startRound.disabled = false;
+        startRandomGameBtn.disabled = false;
         nextRound.disabled = true;
       });
 
@@ -278,6 +286,7 @@
         alert(message || 'Fel vid start av runda');
         promptEl.textContent = 'Fel vid start – prova en annan stad.';
         startRound.disabled = false;
+        startRandomGameBtn.disabled = false;
         nextRound.disabled = true;
       });
 
@@ -359,10 +368,12 @@
         socket.once('host:reclaim:failed', () => {
           createGame.disabled = false;
           startRound.disabled = true;
+          startRandomGameBtn.disabled = true;
         });
       } else {
         createGame.disabled = false;
         startRound.disabled = true;
+        startRandomGameBtn.disabled = true;
       }
     }
 
@@ -383,7 +394,11 @@
       socket.emit('host:startRound', { gameId, cityName: name });
       startRound.disabled = true; nextRound.disabled = true;
     };
-    nextRound.onclick = () => { socket.emit('host:nextRound', { gameId }); startRound.disabled = false; };
+    startRandomGameBtn.onclick = () => {
+      socket.emit('startRandomGame');
+      startRandomGameBtn.disabled = true; startRound.disabled = true; nextRound.disabled = true;
+    };
+    nextRound.onclick = () => { socket.emit('host:nextRound', { gameId }); startRound.disabled = false; startRandomGameBtn.disabled = false; };
     resetGameBtn.onclick = () => { socket.emit('host:resetGame', { gameId }); myTotal = 0; totalMe.textContent = 'Totalt: 0.0 km'; roundLayer.clearLayers(); resultsEl.textContent = '—'; promptEl.textContent = 'Nollställt. Redo att starta runda.'; };
     endGame.onclick = () => { socket.emit('host:endGame', { gameId }); };
 
