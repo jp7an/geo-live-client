@@ -254,7 +254,7 @@
       });
 
       socket.on('guess:accepted', ({ km }) => {
-        resultsEl.textContent = `Din gissning: ${km} km`;
+        resultsEl.textContent = `Din gissning är registrerad. Väntar på att rundan ska avslutas...`;
       });
 
       socket.on('round:results', ({ city, results }) => {
