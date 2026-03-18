@@ -67,6 +67,10 @@
 
     /* ====== Kartmarkering för åskådare ====== */
     .map-inactive { pointer-events:none }
+
+    /* ====== Anslutningsstatus-prickar i lobby-listan ====== */
+    .dot-online  { display:inline-block; width:9px; height:9px; border-radius:50%; background:#4caf50; margin-right:4px; vertical-align:middle }
+    .dot-offline { display:inline-block; width:9px; height:9px; border-radius:50%; background:#ccc;    margin-right:4px; vertical-align:middle }
   </style>
 </head>
 <body>
@@ -82,14 +86,17 @@
 <!-- ====== LOBBY-VY ====== -->
 <div id="lobbyView" class="box">
 
-  <!-- Välj host eller spelare -->
-  <div class="row" style="margin-bottom:12px">
-    <button id="switchToHostBtn">👑 Jag är host</button>
-    <button id="switchToPlayerBtn">🎮 Jag är spelare</button>
+  <!-- VY A: Startsida – välj om du vill skapa eller gå med i ett spel -->
+  <div id="startView">
+    <h3 style="margin:0 0 14px">Lagkart-Quiz</h3>
+    <div class="row">
+      <button id="goToHostSetupBtn" style="padding:10px 18px;font-size:15px">🚀 Skapa nytt spel</button>
+      <button id="goToJoinBtn"      style="padding:10px 18px;font-size:15px">🎮 Gå med i spel</button>
+    </div>
   </div>
 
-  <!-- HOST-lobby: konfigurera och skapa spel -->
-  <div id="hostLobby">
+  <!-- VY B: Host-setup – konfigurera lagnamn, omgångar och poängsättning -->
+  <div id="hostSetupView" class="hidden">
     <h3 style="margin:0 0 8px">Konfigurera lagspel</h3>
 
     <!-- Antal lag (2–5) -->
@@ -100,7 +107,7 @@
       <button id="teamsIncrBtn" style="width:32px">+</button>
     </div>
 
-    <!-- Dynamisk lagkonfiguration -->
+    <!-- Dynamisk lagkonfiguration (bara lagnamn – inga spelarnamn) -->
     <div id="teamsConfig"></div>
 
     <!-- Antal omgångar -->
@@ -118,32 +125,50 @@
       </select>
     </div>
 
-    <button id="createTeamGameBtn" style="margin-top:8px">🚀 Skapa lagspel</button>
-
-    <!-- Visar spelkoden efter att spelet skapats -->
-    <div id="gameCodeDisplay" class="hidden" style="margin-top:12px">
-      <span class="muted">Spelkod:</span>
-      <strong id="gameCodeValue" style="font-size:1.5em; letter-spacing:4px; margin-left:6px">——</strong>
+    <div class="row" style="margin-top:10px">
+      <button id="createTeamGameBtn">🚀 Skapa spel</button>
+      <button id="backToStartFromHostBtn" style="border:1px solid #ccc;background:none;color:#555">← Tillbaka</button>
     </div>
-
-    <!-- Live-lista över anslutna spelare per lag -->
-    <div id="lobbyTeamsList" class="hidden" style="margin-top:10px"></div>
-
-    <!-- Starta-knapp (aktiveras när alla lag har rätt antal spelare) -->
-    <button id="startTeamGameBtn" class="hidden" disabled style="margin-top:10px">▶ Starta spelet</button>
   </div>
 
-  <!-- SPELARE-lobby: gå med med spelkod och namn -->
-  <div id="playerLobby" class="hidden">
-    <h3 style="margin:0 0 8px">Gå med i lagspel</h3>
-    <div class="row" style="margin:8px 0">
-      <input id="joinCode" placeholder="6-siffrig kod" maxlength="6" style="width:110px"/>
-      <input id="joinName" placeholder="Ditt namn" style="width:130px"/>
-      <button id="joinTeamBtn">Gå med</button>
+  <!-- VY C: Väntrum – visas för ALLA (inklusive hosten) efter att spelet skapats/anslutits -->
+  <div id="waitingRoomView" class="hidden">
+
+    <!-- Spelkod – bara synlig för hosten -->
+    <div id="hostCodeSection" class="hidden"
+         style="margin-bottom:14px;padding:10px 14px;background:#f0f8ff;border-radius:8px;border:1px solid #c0d8f0">
+      <div class="muted" style="margin-bottom:6px">📢 Dela koden med de andra spelarna!</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <strong id="gameCodeValue" style="font-size:2em;letter-spacing:6px;font-family:monospace">——</strong>
+        <button id="copyCodeBtn">📋 Kopiera</button>
+      </div>
     </div>
-    <!-- Visar vilket lag spelaren hamnat i -->
-    <div id="joinStatus" class="hidden"
-         style="margin-top:6px;padding:6px 8px;background:#f0f8ff;border-radius:6px;font-size:13px"></div>
+
+    <!-- Join-formulär: visas för alla som inte ännu valt lag (inklusive hosten) -->
+    <div id="lobbyJoinSection">
+      <h4 style="margin:0 0 8px">Gå med i ett lag</h4>
+
+      <!-- Namnfält -->
+      <div class="row" style="margin-bottom:8px">
+        <input id="lobbyNameInput" placeholder="Ditt namn" style="width:160px"/>
+      </div>
+
+      <!-- Kodinput + Fortsätt-knapp (visas bara för spelare, inte hosten) -->
+      <div id="lobbyCodeRow" style="display:none;margin-bottom:8px" class="row">
+        <input id="lobbyCodeInput" placeholder="Spelkod (6 siffror)" maxlength="6" style="width:175px"/>
+        <button id="lobbyLookupBtn">Fortsätt →</button>
+      </div>
+
+      <!-- Lagknappar (visas direkt för hosten, efter kod för spelare) -->
+      <div id="lobbyTeamBtns" style="display:none" class="row"></div>
+    </div>
+
+    <!-- Live-lista: lag med spelare och anslutningsstatus (grön/grå prick) -->
+    <div id="lobbyTeamsList" style="margin-top:12px"></div>
+
+    <!-- Starta-knapp (bara synlig och klickbar för hosten, disabled tills klart) -->
+    <button id="startTeamGameBtn" class="hidden" disabled style="margin-top:12px">⏳ Väntar på spelare...</button>
+
   </div>
 
 </div>
@@ -222,6 +247,9 @@
 // ====== Serveradress ======
 const SERVER_URL = "https://geo-live-server.onrender.com";
 
+// ====== Spelkonstanter ======
+const MAX_PLAYERS_PER_TEAM = 3; // Max antal spelare per lag
+
 // ====== Distinkt färg per lag (index 0–4) ======
 const TEAM_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa'];
 
@@ -245,13 +273,16 @@ function getTeamColor(teamName) {
 // ====== Globalt tillstånd ======
 let socket = null;
 let gameId  = null;
-// Aktuell roll för denna klient: 'host' | 'drawer' | 'guesser' | 'spectator'
-// Spelare börjar som 'player' (neutralt) tills server bekräftat lagtillhörighet
-let myRole  = 'host';
+// isHost: sant om denna klient skapade spelet (styr om spelkod och startknapp visas)
+let isHost  = false;
+// Aktuell roll för denna klient: null (ej valt lag) | 'drawer' | 'guesser' | 'spectator'
+// Rollen null används tills spelaren anslutit till ett lag
+let myRole  = null;
 let myTeamName  = null;     // Spelarens lagnamn (sätts vid player:teamJoined)
 let myPlayerId  = null;     // Spelarens ID
+let currentGameCode = null; // Spelkoden – används av hosten vid lag-join
 let totalRounds = 12;
-let numTeams    = 2;        // Antal lag att konfigurera (host-lobby)
+let numTeams    = 2;        // Antal lag att konfigurera (host-setup)
 
 // Canvas-tillstånd
 let isDrawing    = false;
@@ -288,11 +319,18 @@ function showView(viewId) {
   }
 }
 
-// ====== LOBBY: Konfigurera lag ======
+// Växlar mellan lobby-subvyerna A (start), B (host-setup) och C (väntrum)
+function showLobbySubView(viewId) {
+  ['startView', 'hostSetupView', 'waitingRoomView'].forEach(id => {
+    document.getElementById(id).classList.toggle('hidden', id !== viewId);
+  });
+}
+
+// ====== LOBBY: Konfigurera lag (bara lagnamn – inga spelarnamn) ======
 const numTeamsDisplay = document.getElementById('numTeamsDisplay');
 const teamsConfig     = document.getElementById('teamsConfig');
 
-// Bygger formulär för lagnamn och spelarnamn
+// Bygger formulär med enbart lagnamn (spelare lägger till sina egna namn i väntrumet)
 function renderTeamsConfig() {
   teamsConfig.innerHTML = '';
   for (let t = 0; t < numTeams; t++) {
@@ -303,41 +341,12 @@ function renderTeamsConfig() {
       <div class="row">
         <span class="team-badge" style="background:${color}">Lag ${t + 1}</span>
         <input type="text" class="teamNameInput" data-team="${t}"
-               placeholder="Lagnamn" value="Lag ${t + 1}" style="width:120px"/>
+               placeholder="Lagnamn" value="Lag ${t + 1}" style="width:150px"/>
       </div>
-      <div id="playerInputs_${t}" class="row" style="margin-top:6px"></div>
-      <button class="addPlayerBtn" data-team="${t}"
-              style="margin-top:4px;font-size:12px">+ Lägg till spelare</button>
     `;
     teamsConfig.appendChild(div);
-    buildPlayerInputs(t, 2); // Standard: 2 spelare per lag
   }
 }
-
-// Bygger spelarinput-fält för ett lag
-function buildPlayerInputs(teamIdx, count) {
-  const container = document.getElementById(`playerInputs_${teamIdx}`);
-  container.innerHTML = '';
-  for (let p = 0; p < count; p++) {
-    const inp = document.createElement('input');
-    inp.type        = 'text';
-    inp.className   = 'playerNameInput';
-    inp.dataset.team   = teamIdx;
-    inp.dataset.player = p;
-    inp.placeholder = `Spelare ${p + 1}`;
-    inp.style.width = '100px';
-    container.appendChild(inp);
-  }
-}
-
-// Lägg till spelare-knapp (max 3 per lag)
-teamsConfig.addEventListener('click', e => {
-  if (!e.target.classList.contains('addPlayerBtn')) return;
-  const t = parseInt(e.target.dataset.team);
-  const container = document.getElementById(`playerInputs_${t}`);
-  const currentCount = container.querySelectorAll('input').length;
-  if (currentCount < 3) buildPlayerInputs(t, currentCount + 1);
-});
 
 // Antal lag: minska / öka
 document.getElementById('teamsDecrBtn').onclick = () => {
@@ -349,21 +358,24 @@ document.getElementById('teamsIncrBtn').onclick = () => {
 
 renderTeamsConfig(); // Bygg initial lagkonfiguration (2 lag)
 
-// ====== Växla mellan host-vy och spelare-vy ======
-document.getElementById('switchToHostBtn').onclick = () => {
-  document.getElementById('hostLobby').classList.remove('hidden');
-  document.getElementById('playerLobby').classList.add('hidden');
-  myRole = 'host';
-};
-document.getElementById('switchToPlayerBtn').onclick = () => {
-  document.getElementById('hostLobby').classList.add('hidden');
-  document.getElementById('playerLobby').classList.remove('hidden');
-  myRole = 'guesser'; // Tillfällig grundroll; uppdateras till 'drawer'/'guesser'/'spectator' när spelet startar
+// ====== Navigering mellan lobby-subvyerna ======
+
+// Vy A → Vy B (host-setup)
+document.getElementById('goToHostSetupBtn').onclick = () => {
+  showLobbySubView('hostSetupView');
 };
 
-// Visa host-lobby som standard
-document.getElementById('hostLobby').classList.remove('hidden');
-document.getElementById('playerLobby').classList.add('hidden');
+// Vy A → Vy C (spelare: visa kodinput direkt i väntrumet)
+document.getElementById('goToJoinBtn').onclick = () => {
+  showLobbySubView('waitingRoomView');
+  // Visa kod- och Fortsätt-raden för spelare (hosten ser den inte)
+  document.getElementById('lobbyCodeRow').style.display = 'flex';
+};
+
+// Vy B → Vy A (tillbaka)
+document.getElementById('backToStartFromHostBtn').onclick = () => {
+  showLobbySubView('startView');
+};
 
 // ====== Socket.io: Anslut till servern ======
 function connect() {
@@ -377,39 +389,58 @@ function connect() {
 // ====== Host: Skapa lagspel ======
 document.getElementById('createTeamGameBtn').onclick = () => {
   connect();
+  isHost = true;
   const totalRoundsVal = Math.min(30, Math.max(1,
     parseInt(document.getElementById('totalRoundsInput').value, 10) || 12));
   const scoringMode = document.getElementById('scoringModeSelect').value;
 
-  // Samla lag-data från formuläret
+  // Samla bara lagnamn – spelarna anger sina egna namn i väntrumet
   const teams = [];
   for (let t = 0; t < numTeams; t++) {
-    const nameInput  = teamsConfig.querySelector(`.teamNameInput[data-team="${t}"]`);
-    const teamName   = (nameInput?.value || `Lag ${t + 1}`).trim();
-    const playerInps = teamsConfig.querySelectorAll(`.playerNameInput[data-team="${t}"]`);
-    const playerNames = Array.from(playerInps)
-      .map(i => i.value.trim())
-      .filter(Boolean);
-    teams.push({ name: teamName, playerNames });
+    const nameInput = teamsConfig.querySelector(`.teamNameInput[data-team="${t}"]`);
+    const teamName  = (nameInput?.value || `Lag ${t + 1}`).trim();
+    teams.push({ name: teamName });
   }
 
   socket.emit('host:createTeamGame', { totalRounds: totalRoundsVal, scoringMode, teams });
 };
 
-// Host: Starta spelet (aktiveras när alla lag har rätt antal spelare)
+// Host: Starta spelet (aktiveras när alla lag har minst 2 spelare)
 document.getElementById('startTeamGameBtn').onclick = () => {
   if (socket && gameId) socket.emit('host:startTeamGame', { gameId });
 };
 
-// Spelare: Gå med i ett spel med kod och namn
-document.getElementById('joinTeamBtn').onclick = () => {
-  connect();
-  const code = (document.getElementById('joinCode').value || '').replace(/\D/g, '');
-  const name = (document.getElementById('joinName').value || '').trim();
-  if (code.length !== 6) return alert('Skriv 6-siffrig kod.');
-  if (!name) return alert('Skriv ditt namn.');
-  socket.emit('player:joinTeam', { code, name });
+// Kopierings-knapp för spelkoden (bara synlig för hosten)
+document.getElementById('copyCodeBtn').onclick = () => {
+  const code = document.getElementById('gameCodeValue').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    const btn = document.getElementById('copyCodeBtn');
+    btn.textContent = '✅ Kopierad!';
+    setTimeout(() => { btn.textContent = '📋 Kopiera'; }, 2000);
+  });
 };
+
+// Spelare: "Fortsätt →" – anslut till lobbyrummet för att se lagen
+document.getElementById('lobbyLookupBtn').onclick = () => {
+  connect();
+  const code = (document.getElementById('lobbyCodeInput').value || '').replace(/\D/g, '');
+  const name = (document.getElementById('lobbyNameInput').value || '').trim();
+  if (code.length !== 6) return alert('Skriv en giltig 6-siffrig spelkod.');
+  if (!name) return alert('Skriv ditt namn.');
+  // Gå med i lobbyrummet utan att välja lag ännu – servern svarar med teamLobby:update
+  socket.emit('player:joinTeamLobby', { code, name });
+};
+
+// Hjälpfunktion: skicka lag-join-begäran (används av lagknapparna i väntrumet)
+function handleJoinTeamClick(teamId) {
+  const code = isHost
+    ? currentGameCode
+    : (document.getElementById('lobbyCodeInput').value || '').replace(/\D/g, '');
+  const name = (document.getElementById('lobbyNameInput').value || '').trim();
+  if (!name) return alert('Skriv ditt namn.');
+  if (!code) return alert('Spelkoden saknas.');
+  socket.emit('player:joinTeamByTeamId', { code, name, teamId });
+}
 
 // ====== Leaflet-kartor ======
 
@@ -625,34 +656,53 @@ function bindSocketEvents() {
 
   // --- Spelet skapades (host) ---
   socket.on('teamGame:created', ({ gameId: gid, code, teams, totalRounds: tr }) => {
-    gameId      = gid;
-    totalRounds = tr;
+    gameId          = gid;
+    totalRounds     = tr;
+    currentGameCode = code;
     buildTeamColorMap(teams); // Registrera lagfärger en gång
+
+    // Övergå till väntrummet (Vy C)
+    showLobbySubView('waitingRoomView');
+
+    // Visa spelkod och info enbart för hosten
     document.getElementById('gameCodeValue').textContent = code;
-    document.getElementById('gameCodeDisplay').classList.remove('hidden');
-    document.getElementById('lobbyTeamsList').classList.remove('hidden');
+    document.getElementById('hostCodeSection').classList.remove('hidden');
+
+    // Visa och aktivera starta-knappen (disabled initialt)
     document.getElementById('startTeamGameBtn').classList.remove('hidden');
+
+    // Visa lagknapparna direkt för hosten (kod behövs inte)
+    renderLobbyTeamBtns(teams);
+
+    // Uppdatera live-listan med de nyskapade lagen
     renderLobbyTeams(teams);
   });
 
-  // --- Lobby uppdaterad (live-spelare per lag) ---
+  // --- Lobby uppdaterad (live-spelare per lag) – tas emot av alla i rummet ---
   socket.on('teamLobby:update', ({ teams }) => {
     buildTeamColorMap(teams); // Uppdatera färgmappning om lag tillkommer
-    if (myRole === 'host') {
-      renderLobbyTeams(teams);
-      checkStartEnabled(teams);
+
+    // Uppdatera live-listan för alla
+    renderLobbyTeams(teams);
+
+    // Uppdatera lagknapparna med aktuellt spelarantal (om de visas)
+    if (document.getElementById('lobbyTeamBtns').style.display !== 'none') {
+      renderLobbyTeamBtns(teams);
     }
+
+    // Hosten kontrollerar om starta-knappen ska aktiveras
+    if (isHost) checkStartEnabled(teams);
   });
 
-  // --- Spelare gick med i ett lag ---
+  // --- Spelare gick med i ett lag (bekräftelse från servern) ---
   socket.on('player:teamJoined', ({ gameId: gid, playerId, teamId, teamName }) => {
     gameId     = gid;
     myPlayerId = playerId;
     myTeamName = teamName;
     myRole     = 'guesser'; // Grundroll för spelare (kan bli 'drawer' senare)
-    const el = document.getElementById('joinStatus');
-    el.innerHTML = `✅ Du är med i: <strong>${teamName}</strong>! Väntar på att spelet ska starta...`;
-    el.classList.remove('hidden');
+
+    // Dölj join-formuläret nu när spelaren valt lag
+    document.getElementById('lobbyJoinSection').style.display = 'none';
   });
 
   // --- En delomgång startar (alla tar emot detta) ---
@@ -668,15 +718,13 @@ function bindSocketEvents() {
       `${drawingTeamName} – ${drawerName} ritar just nu`;
 
     // Avgör roll baserat på om spelaren är i ritarlaget
-    // (myRole === 'host' ändras aldrig, myTeamName sätts för spelare)
-    if (myRole !== 'host') {
-      if (myTeamName === drawingTeamName) {
-        // I ritarlaget: kan vara gissare eller ritaren (avgörs av team:cityChoices)
-        myRole = 'guesser';
-      } else {
-        // I motståndarlaget: åskådare
-        myRole = 'spectator';
-      }
+    // (hosten är nu en riktig spelare och tilldelas en roll precis som alla andra)
+    if (myTeamName === drawingTeamName) {
+      // I ritarlaget: kan vara gissare eller ritaren (avgörs av team:cityChoices)
+      myRole = 'guesser';
+    } else {
+      // I motståndarlaget: åskådare
+      myRole = 'spectator';
     }
 
     // Återställ canvas-tillstånd
@@ -740,8 +788,8 @@ function bindSocketEvents() {
 
   // --- Rita i realtid (broadcast till alla) ---
   socket.on('team:draw', ({ x, y, drawing, color, lineWidth }) => {
-    // Bara mottagare (inte ritaren) ritar på viewCanvas
-    if (myRole === 'guesser' || myRole === 'spectator' || myRole === 'host') {
+    // Alla som inte är ritaren ritar på viewCanvas
+    if (myRole !== 'drawer') {
       if (!viewCanvas.width || !viewCanvas.height) resizeCanvas(viewCanvas);
       drawOnViewCanvas(x, y, drawing, color, lineWidth);
     }
@@ -809,7 +857,7 @@ function bindSocketEvents() {
     renderTeamStandings(teams);
 
     // Visa "Nästa"-knappen bara för hosten
-    if (myRole === 'host') {
+    if (isHost) {
       document.getElementById('nextSubRoundBtn').classList.remove('hidden');
     }
 
@@ -869,51 +917,77 @@ function prepareGameView() {
       prevDrawPoint = null;
     }, 50);
     setTimeout(() => guessMap?.invalidateSize(), 150);
-
-  } else if (myRole === 'host') {
-    // Hosten: viewCanvas (ser ritningen)
-    document.getElementById('viewerCanvasSection').classList.remove('hidden');
-    setTimeout(() => {
-      resizeCanvas(viewCanvas);
-      viewCtx = viewCanvas.getContext('2d');
-      viewCtx?.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
-      prevDrawPoint = null;
-    }, 50);
   }
 }
 
 // ====== Hjälpfunktioner ======
 
-// Visa anslutna spelare per lag i lobby-listan
+// Renderar lagknappar i join-formuläret med aktuellt spelarantal och max 3 per lag
+function renderLobbyTeamBtns(teams) {
+  const container = document.getElementById('lobbyTeamBtns');
+  container.innerHTML = '';
+
+  teams.forEach(team => {
+    const color  = getTeamColor(team.name);
+    const count  = (team.players || []).length;
+    const isFull = count >= MAX_PLAYERS_PER_TEAM;
+    const btn    = document.createElement('button');
+    btn.textContent    = isFull
+      ? `${team.name} (fullt)`
+      : `Gå med i ${team.name} (${count}/${MAX_PLAYERS_PER_TEAM})`;
+    btn.disabled       = isFull;
+    btn.style.background = isFull ? '#bbb' : color;
+    btn.style.color      = '#fff';
+    btn.style.margin     = '4px';
+    btn.style.border     = 'none';
+    btn.style.borderRadius = '6px';
+    btn.style.padding    = '8px 14px';
+    btn.style.cursor     = isFull ? 'default' : 'pointer';
+    if (!isFull) {
+      btn.onclick = () => handleJoinTeamClick(team.id);
+    }
+    container.appendChild(btn);
+  });
+
+  container.style.display = 'flex';
+}
+
+// Visar anslutna spelare per lag med grön/grå anslutningsprick i lobby-listan
 function renderLobbyTeams(teams) {
   const container = document.getElementById('lobbyTeamsList');
   if (!teams?.length) { container.innerHTML = ''; return; }
   container.innerHTML =
     '<strong style="display:block;margin-bottom:6px">Anslutna spelare per lag:</strong>';
   teams.forEach((team, i) => {
-    // Använd buildTeamColorMap:s färg om tillgänglig, annars index-baserat
-    const color   = teamColorMap.has(team.name)
+    const color = teamColorMap.has(team.name)
       ? getTeamColor(team.name)
       : TEAM_COLORS[i % TEAM_COLORS.length];
-    const div     = document.createElement('div');
-    div.style.margin = '3px 0';
-    const players = (team.players || []).map(p => p.name || p).join(', ') || '—';
+    const div = document.createElement('div');
+    div.style.margin = '4px 0';
+    // Visa varje spelare med grön (online) eller grå (offline) prick
+    // p.online saknas (undefined) tolkas som online; explicit false = offline
+    const players = (team.players || []).map(p => {
+      const online = p.online !== false; // undefined → online, false → offline
+      const dot    = online
+        ? '<span class="dot-online"></span>'
+        : '<span class="dot-offline"></span>';
+      return `${dot}${p.name || p}`;
+    }).join(', ') || '<span class="muted">—</span>';
     div.innerHTML = `
       <span class="team-badge" style="background:${color}">${team.name}</span>
-      <span class="muted">${players}</span>
+      <span style="margin-left:6px;font-size:13px">${players}</span>
     `;
     container.appendChild(div);
   });
 }
 
-// Aktiverar start-knappen om alla lag har 2–3 anslutna spelare
+// Aktiverar starta-knappen om alla lag har minst 2 anslutna spelare
 function checkStartEnabled(teams) {
   if (!teams?.length) return;
-  const allReady = teams.every(t => {
-    const n = (t.players || []).length;
-    return n >= 2 && n <= 3;
-  });
-  document.getElementById('startTeamGameBtn').disabled = !allReady;
+  const allReady = teams.every(t => (t.players || []).length >= 2);
+  const btn = document.getElementById('startTeamGameBtn');
+  btn.disabled    = !allReady;
+  btn.textContent = allReady ? '▶ Starta spelet' : '⏳ Väntar på spelare...';
 }
 
 // Renderar lagställning sorterat på lägst totalt km (lägre = bättre)
@@ -962,9 +1036,6 @@ document.getElementById('nextSubRoundBtn').onclick = function () {
   this.classList.add('hidden');
   showView('gameView');
 };
-
-// ====== Anslut automatiskt vid sidladdning ======
-connect();
 </script>
 </body>
 </html>
