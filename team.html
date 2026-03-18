@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lagkart-Quiz</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    /* ====== Grundläggande stilar (återanvänds från live.html) ====== */
+    :root { --border:#d0d7de }
+    body { margin:0; font-family:system-ui,Segoe UI,Roboto,Arial }
+    header { padding:8px 12px; display:flex; gap:8px; align-items:center; border-bottom:1px solid var(--border); flex-wrap:wrap }
+    .pill { border:1px solid var(--border); border-radius:999px; padding:2px 8px; font-size:12px }
+    .box { padding:8px 12px }
+    input, select, button { padding:6px 8px }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+    .muted { color:#666; font-size:12px }
+    button { cursor:pointer }
+    .hidden { display:none }
+    #credit { position:fixed; right:10px; bottom:8px; opacity:.5; font-size:12px; pointer-events:none }
+
+    /* ====== Kartor ====== */
+    #map { height:45vh; touch-action:manipulation }
+    #map2 { height:40vh }
+
+    /* ====== Canvas ====== */
+    #drawCanvas {
+      width:100%; aspect-ratio:4/3;
+      border:1px solid var(--border); cursor:crosshair;
+      touch-action:none; background:#fff; display:block
+    }
+    #viewCanvas {
+      width:100%; aspect-ratio:4/3;
+      border:1px solid var(--border);
+      background:#fff; display:block
+    }
+    #canvasTools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 0 }
+
+    /* ====== Lagfärger ====== */
+    .team-badge {
+      border-radius:4px; padding:2px 8px; font-size:12px;
+      color:#fff; display:inline-block; font-weight:600
+    }
+
+    /* ====== Modal ====== */
+    .modal {
+      position:fixed; inset:0; background:rgba(0,0,0,.4);
+      display:none; align-items:center; justify-content:center; padding:16px
+    }
+    .modal-card {
+      background:#fff; border-radius:16px; padding:16px;
+      max-width:420px; width:100%; box-shadow:0 10px 30px rgba(0,0,0,.25)
+    }
+    .modal-card h2 { margin:0 0 8px }
+
+    /* ====== Lobby-konfiguration ====== */
+    .team-config {
+      border:1px solid var(--border); border-radius:8px;
+      padding:8px; margin:4px 0
+    }
+
+    /* ====== Resultatlistor ====== */
+    #teamStandings li, #finalList li {
+      display:flex; justify-content:space-between;
+      padding:4px 0; border-bottom:1px solid #eee
+    }
+
+    /* ====== Kartmarkering för åskådare ====== */
+    .map-inactive { pointer-events:none }
+  </style>
+</head>
+<body>
+
+<!-- ====== Sidhuvud ====== -->
+<header>
+  <strong>Lagkart-Quiz</strong>
+  <span id="status" class="muted">Inte ansluten</span>
+  <span id="roundInfo" class="pill hidden">—</span>
+  <span id="drawingInfo" class="pill hidden">—</span>
+</header>
+
+<!-- ====== LOBBY-VY ====== -->
+<div id="lobbyView" class="box">
+
+  <!-- Välj host eller spelare -->
+  <div class="row" style="margin-bottom:12px">
+    <button id="switchToHostBtn">👑 Jag är host</button>
+    <button id="switchToPlayerBtn">🎮 Jag är spelare</button>
+  </div>
+
+  <!-- HOST-lobby: konfigurera och skapa spel -->
+  <div id="hostLobby">
+    <h3 style="margin:0 0 8px">Konfigurera lagspel</h3>
+
+    <!-- Antal lag (2–5) -->
+    <div class="row" style="margin:6px 0">
+      <label>Antal lag (2–5):</label>
+      <button id="teamsDecrBtn" style="width:32px">−</button>
+      <strong id="numTeamsDisplay">2</strong>
+      <button id="teamsIncrBtn" style="width:32px">+</button>
+    </div>
+
+    <!-- Dynamisk lagkonfiguration -->
+    <div id="teamsConfig"></div>
+
+    <!-- Antal omgångar -->
+    <div class="row" style="margin:8px 0">
+      <label>Antal omgångar (1–30):</label>
+      <input type="number" id="totalRoundsInput" value="12" min="1" max="30" style="width:60px"/>
+    </div>
+
+    <!-- Poängsättningsläge -->
+    <div class="row" style="margin:6px 0">
+      <label>Poängsättning:</label>
+      <select id="scoringModeSelect">
+        <option value="average">Medel (alla gissningar)</option>
+        <option value="best">Bäst gissning</option>
+      </select>
+    </div>
+
+    <button id="createTeamGameBtn" style="margin-top:8px">🚀 Skapa lagspel</button>
+
+    <!-- Visar spelkoden efter att spelet skapats -->
+    <div id="gameCodeDisplay" class="hidden" style="margin-top:12px">
+      <span class="muted">Spelkod:</span>
+      <strong id="gameCodeValue" style="font-size:1.5em; letter-spacing:4px; margin-left:6px">——</strong>
+    </div>
+
+    <!-- Live-lista över anslutna spelare per lag -->
+    <div id="lobbyTeamsList" class="hidden" style="margin-top:10px"></div>
+
+    <!-- Starta-knapp (aktiveras när alla lag har rätt antal spelare) -->
+    <button id="startTeamGameBtn" class="hidden" disabled style="margin-top:10px">▶ Starta spelet</button>
+  </div>
+
+  <!-- SPELARE-lobby: gå med med spelkod och namn -->
+  <div id="playerLobby" class="hidden">
+    <h3 style="margin:0 0 8px">Gå med i lagspel</h3>
+    <div class="row" style="margin:8px 0">
+      <input id="joinCode" placeholder="6-siffrig kod" maxlength="6" style="width:110px"/>
+      <input id="joinName" placeholder="Ditt namn" style="width:130px"/>
+      <button id="joinTeamBtn">Gå med</button>
+    </div>
+    <!-- Visar vilket lag spelaren hamnat i -->
+    <div id="joinStatus" class="hidden"
+         style="margin-top:6px;padding:6px 8px;background:#f0f8ff;border-radius:6px;font-size:13px"></div>
+  </div>
+
+</div>
+
+<!-- ====== SPELVY ====== -->
+<div id="gameView" class="hidden">
+
+  <!-- Statusrad: vem ritar, vilken stad etc. -->
+  <div class="box" style="padding-bottom:4px">
+    <span id="gameStatusText" class="muted">—</span>
+  </div>
+
+  <!-- RITARENS stadval (visas bara för ritaren, döljs när stad valts) -->
+  <div id="cityChoiceSection" class="box hidden">
+    <strong>Du ritar! Välj en stad:</strong>
+    <div id="cityChoiceBtns" class="row" style="margin-top:8px"></div>
+  </div>
+
+  <!-- CANVAS för ritaren (visas efter stadval) -->
+  <div id="drawerCanvasSection" class="hidden" style="padding:0 12px 8px">
+    <div id="canvasTools">
+      <span class="muted" style="font-size:11px">Pensel:</span>
+      <button class="brushBtn" data-size="4" title="Smal">S</button>
+      <button class="brushBtn" data-size="10" title="Medium">M</button>
+      <button class="brushBtn" data-size="20" title="Tjock">L</button>
+      <input type="color" id="colorPicker" value="#222222" title="Välj färg"
+             style="width:36px;height:32px;padding:2px;cursor:pointer;border:1px solid var(--border)"/>
+      <button id="clearCanvasBtn">🗑️ Rensa</button>
+    </div>
+    <canvas id="drawCanvas"></canvas>
+    <div id="drawerWaitText" class="muted hidden" style="font-size:13px;padding:4px 0">
+      ⏳ Väntar på att ditt lag ska gissa...
+    </div>
+  </div>
+
+  <!-- CANVAS för mottagare: gissare och åskådare ser ritarens streck -->
+  <div id="viewerCanvasSection" class="hidden" style="padding:0 12px 8px">
+    <canvas id="viewCanvas"></canvas>
+  </div>
+
+  <!-- KARTA: gissaren kan klicka, åskådaren kan inte -->
+  <div id="mapSection" class="hidden">
+    <div id="map"></div>
+    <div id="guessStatus" class="box muted">Placera nålen på kartan!</div>
+  </div>
+
+</div>
+
+<!-- ====== RESULTATVY ====== -->
+<div id="resultsView" class="hidden">
+  <!-- Karta med rätt svar och gissningar -->
+  <div id="map2"></div>
+  <div class="box">
+    <div id="subRoundResult" style="margin-bottom:10px"></div>
+    <strong>Lagställning:</strong>
+    <ol id="teamStandings" style="padding-left:1.2em; margin:4px 0 10px"></ol>
+    <!-- Bara hosten ser "Nästa"-knappen -->
+    <button id="nextSubRoundBtn" class="hidden">Nästa omgång →</button>
+  </div>
+</div>
+
+<!-- ====== SLUTRESULTAT-MODAL ====== -->
+<div id="finalModal" class="modal">
+  <div class="modal-card">
+    <h2>🏆 Slutresultat</h2>
+    <ol id="finalList" style="padding-left:1.2em; margin:0 0 12px"></ol>
+    <button id="finalClose">Stäng</button>
+  </div>
+</div>
+
+<div id="credit">Ett spel av Jesper Pettersson</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+// ====== Serveradress ======
+const SERVER_URL = "https://geo-live-server.onrender.com";
+
+// ====== Distinkt färg per lag (index 0–4) ======
+const TEAM_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa'];
+
+// Mappar lagnamn → färgindex för att hålla konsekvent lagfärg under hela spelet
+let teamColorMap = new Map();
+
+function buildTeamColorMap(teams) {
+  if (!teams?.length) return;
+  teams.forEach((team, i) => {
+    if (!teamColorMap.has(team.name)) {
+      teamColorMap.set(team.name, i % TEAM_COLORS.length);
+    }
+  });
+}
+
+function getTeamColor(teamName) {
+  const idx = teamColorMap.has(teamName) ? teamColorMap.get(teamName) : 0;
+  return TEAM_COLORS[idx];
+}
+
+// ====== Globalt tillstånd ======
+let socket = null;
+let gameId  = null;
+// Aktuell roll för denna klient: 'host' | 'drawer' | 'guesser' | 'spectator'
+// Spelare börjar som 'player' (neutralt) tills server bekräftat lagtillhörighet
+let myRole  = 'host';
+let myTeamName  = null;     // Spelarens lagnamn (sätts vid player:teamJoined)
+let myPlayerId  = null;     // Spelarens ID
+let totalRounds = 12;
+let numTeams    = 2;        // Antal lag att konfigurera (host-lobby)
+
+// Canvas-tillstånd
+let isDrawing    = false;
+let drawColor    = '#222222';
+let drawLineWidth = 4;       // Ritarens penselbredd i px
+let prevDrawPoint = null;    // Föregående punkt för kontinuerliga streck (viewCanvas)
+
+// Kartor (Leaflet-instanser)
+let guessMap       = null;
+let guessLayer     = null;
+let myGuessMarker  = null;
+let mapClickEnabled = false; // Sant bara för gissaren
+
+let resultMap   = null;
+let resultLayer = null;
+
+// Canvas-kontexter
+const drawCanvas = document.getElementById('drawCanvas');
+const viewCanvas = document.getElementById('viewCanvas');
+let drawCtx = drawCanvas.getContext('2d');
+let viewCtx = viewCanvas.getContext('2d');
+
+// ====== Vy-hantering: visa enbart en vy åt gången ======
+function showView(viewId) {
+  ['lobbyView', 'gameView', 'resultsView'].forEach(id => {
+    document.getElementById(id).classList.toggle('hidden', id !== viewId);
+  });
+  // Leaflet behöver invalideras efter att en dold karta visas
+  if (viewId === 'gameView' && guessMap) {
+    setTimeout(() => guessMap.invalidateSize(), 100);
+  }
+  if (viewId === 'resultsView' && resultMap) {
+    setTimeout(() => resultMap.invalidateSize(), 100);
+  }
+}
+
+// ====== LOBBY: Konfigurera lag ======
+const numTeamsDisplay = document.getElementById('numTeamsDisplay');
+const teamsConfig     = document.getElementById('teamsConfig');
+
+// Bygger formulär för lagnamn och spelarnamn
+function renderTeamsConfig() {
+  teamsConfig.innerHTML = '';
+  for (let t = 0; t < numTeams; t++) {
+    const color = TEAM_COLORS[t % TEAM_COLORS.length];
+    const div   = document.createElement('div');
+    div.className = 'team-config';
+    div.innerHTML = `
+      <div class="row">
+        <span class="team-badge" style="background:${color}">Lag ${t + 1}</span>
+        <input type="text" class="teamNameInput" data-team="${t}"
+               placeholder="Lagnamn" value="Lag ${t + 1}" style="width:120px"/>
+      </div>
+      <div id="playerInputs_${t}" class="row" style="margin-top:6px"></div>
+      <button class="addPlayerBtn" data-team="${t}"
+              style="margin-top:4px;font-size:12px">+ Lägg till spelare</button>
+    `;
+    teamsConfig.appendChild(div);
+    buildPlayerInputs(t, 2); // Standard: 2 spelare per lag
+  }
+}
+
+// Bygger spelarinput-fält för ett lag
+function buildPlayerInputs(teamIdx, count) {
+  const container = document.getElementById(`playerInputs_${teamIdx}`);
+  container.innerHTML = '';
+  for (let p = 0; p < count; p++) {
+    const inp = document.createElement('input');
+    inp.type        = 'text';
+    inp.className   = 'playerNameInput';
+    inp.dataset.team   = teamIdx;
+    inp.dataset.player = p;
+    inp.placeholder = `Spelare ${p + 1}`;
+    inp.style.width = '100px';
+    container.appendChild(inp);
+  }
+}
+
+// Lägg till spelare-knapp (max 3 per lag)
+teamsConfig.addEventListener('click', e => {
+  if (!e.target.classList.contains('addPlayerBtn')) return;
+  const t = parseInt(e.target.dataset.team);
+  const container = document.getElementById(`playerInputs_${t}`);
+  const currentCount = container.querySelectorAll('input').length;
+  if (currentCount < 3) buildPlayerInputs(t, currentCount + 1);
+});
+
+// Antal lag: minska / öka
+document.getElementById('teamsDecrBtn').onclick = () => {
+  if (numTeams > 2) { numTeams--; numTeamsDisplay.textContent = numTeams; renderTeamsConfig(); }
+};
+document.getElementById('teamsIncrBtn').onclick = () => {
+  if (numTeams < 5) { numTeams++; numTeamsDisplay.textContent = numTeams; renderTeamsConfig(); }
+};
+
+renderTeamsConfig(); // Bygg initial lagkonfiguration (2 lag)
+
+// ====== Växla mellan host-vy och spelare-vy ======
+document.getElementById('switchToHostBtn').onclick = () => {
+  document.getElementById('hostLobby').classList.remove('hidden');
+  document.getElementById('playerLobby').classList.add('hidden');
+  myRole = 'host';
+};
+document.getElementById('switchToPlayerBtn').onclick = () => {
+  document.getElementById('hostLobby').classList.add('hidden');
+  document.getElementById('playerLobby').classList.remove('hidden');
+  myRole = 'guesser'; // Tillfällig grundroll; uppdateras till 'drawer'/'guesser'/'spectator' när spelet startar
+};
+
+// Visa host-lobby som standard
+document.getElementById('hostLobby').classList.remove('hidden');
+document.getElementById('playerLobby').classList.add('hidden');
+
+// ====== Socket.io: Anslut till servern ======
+function connect() {
+  if (socket) return;
+  socket = io(SERVER_URL, { transports: ['websocket'] });
+  socket.on('connect',    () => document.getElementById('status').textContent = 'Ansluten');
+  socket.on('disconnect', () => document.getElementById('status').textContent = 'Inte ansluten');
+  bindSocketEvents();
+}
+
+// ====== Host: Skapa lagspel ======
+document.getElementById('createTeamGameBtn').onclick = () => {
+  connect();
+  const totalRoundsVal = Math.min(30, Math.max(1,
+    parseInt(document.getElementById('totalRoundsInput').value, 10) || 12));
+  const scoringMode = document.getElementById('scoringModeSelect').value;
+
+  // Samla lag-data från formuläret
+  const teams = [];
+  for (let t = 0; t < numTeams; t++) {
+    const nameInput  = teamsConfig.querySelector(`.teamNameInput[data-team="${t}"]`);
+    const teamName   = (nameInput?.value || `Lag ${t + 1}`).trim();
+    const playerInps = teamsConfig.querySelectorAll(`.playerNameInput[data-team="${t}"]`);
+    const playerNames = Array.from(playerInps)
+      .map(i => i.value.trim())
+      .filter(Boolean);
+    teams.push({ name: teamName, playerNames });
+  }
+
+  socket.emit('host:createTeamGame', { totalRounds: totalRoundsVal, scoringMode, teams });
+};
+
+// Host: Starta spelet (aktiveras när alla lag har rätt antal spelare)
+document.getElementById('startTeamGameBtn').onclick = () => {
+  if (socket && gameId) socket.emit('host:startTeamGame', { gameId });
+};
+
+// Spelare: Gå med i ett spel med kod och namn
+document.getElementById('joinTeamBtn').onclick = () => {
+  connect();
+  const code = (document.getElementById('joinCode').value || '').replace(/\D/g, '');
+  const name = (document.getElementById('joinName').value || '').trim();
+  if (code.length !== 6) return alert('Skriv 6-siffrig kod.');
+  if (!name) return alert('Skriv ditt namn.');
+  socket.emit('player:joinTeam', { code, name });
+};
+
+// ====== Leaflet-kartor ======
+
+// Initialiserar gissningskartan (#map, används under spelvyn)
+function initGuessMap() {
+  if (guessMap) return;
+  const worldBounds = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
+  guessMap = L.map('map', {
+    zoomControl:          true,
+    attributionControl:   false,
+    minZoom:              1,
+    maxBounds:            worldBounds,
+    maxBoundsViscosity:   1.0,
+    worldCopyJump:        false
+  }).setView([25, 10], 2);
+  guessMap.setMaxBounds(worldBounds);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19, subdomains: 'abcd', noWrap: true, bounds: worldBounds,
+    attribution: '© OpenStreetMap, © CARTO'
+  }).addTo(guessMap);
+  guessLayer = L.layerGroup().addTo(guessMap);
+
+  // Klick på kartan = gissning (bara om mapClickEnabled är sant)
+  guessMap.on('click', e => {
+    if (!mapClickEnabled || !socket || !gameId) return;
+    if (myGuessMarker) guessMap.removeLayer(myGuessMarker);
+    myGuessMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(guessMap);
+    socket.emit('team:submitGuess', { gameId, lat: e.latlng.lat, lng: e.latlng.lng });
+  });
+}
+
+// Initialiserar resultatkartan (#map2, används i resultstvyn)
+function initResultMap() {
+  if (resultMap) return;
+  const worldBounds = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
+  resultMap = L.map('map2', {
+    zoomControl:          true,
+    attributionControl:   false,
+    minZoom:              1,
+    maxBounds:            worldBounds,
+    maxBoundsViscosity:   1.0,
+    worldCopyJump:        false
+  }).setView([25, 10], 2);
+  resultMap.setMaxBounds(worldBounds);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19, subdomains: 'abcd', noWrap: true, bounds: worldBounds,
+    attribution: '© OpenStreetMap, © CARTO'
+  }).addTo(resultMap);
+  resultLayer = L.layerGroup().addTo(resultMap);
+}
+
+// ====== Canvas-hantering ======
+
+// Sätt canvasens interna upplösning till dess CSS-storlek
+function resizeCanvas(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    canvas.width  = rect.width;
+    canvas.height = rect.height;
+  }
+}
+
+// Rita ett streck på viewCanvas från normaliserade koordinater (0–1)
+// 'drawing: false' = lyft pennan (ny linje börjar), 'drawing: true' = drag linje
+function drawOnViewCanvas(nx, ny, drawing, color, normalizedLineWidth) {
+  if (!viewCtx) return;
+  if (!drawing) {
+    // Lyft pennan – spara startpunkten för nästa segment
+    prevDrawPoint = { nx, ny };
+    return;
+  }
+  if (!prevDrawPoint) { prevDrawPoint = { nx, ny }; return; }
+
+  // Avnormalisera koordinater till faktiska pixlar
+  const x0 = prevDrawPoint.nx * viewCanvas.width;
+  const y0 = prevDrawPoint.ny * viewCanvas.height;
+  const x1 = nx * viewCanvas.width;
+  const y1 = ny * viewCanvas.height;
+
+  // Skala linjebredden proportionellt mot canvas-bredden
+  const lineWidth = Math.max(1, normalizedLineWidth * viewCanvas.width);
+
+  viewCtx.strokeStyle = color;
+  viewCtx.lineWidth   = lineWidth;
+  viewCtx.lineCap     = 'round';
+  viewCtx.lineJoin    = 'round';
+  viewCtx.beginPath();
+  viewCtx.moveTo(x0, y0);
+  viewCtx.lineTo(x1, y1);
+  viewCtx.stroke();
+
+  prevDrawPoint = { nx, ny };
+}
+
+// Hämtar musposition relativt canvasytan, normaliserat till 0–1
+function getCanvasPos(canvas, clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  return { x, y, nx: x / canvas.width, ny: y / canvas.height };
+}
+
+// --- Mus-händelsehanterare för ritaren ---
+
+drawCanvas.addEventListener('mousedown', e => {
+  if (myRole !== 'drawer') return;
+  const { x, y, nx, ny } = getCanvasPos(drawCanvas, e.clientX, e.clientY);
+  isDrawing = true;
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+  // Normalisera linjebredd relativt canvas-bredden
+  socket?.emit('team:draw', {
+    gameId, x: nx, y: ny,
+    drawing: false, color: drawColor,
+    lineWidth: drawLineWidth / drawCanvas.width
+  });
+});
+
+drawCanvas.addEventListener('mousemove', e => {
+  if (!isDrawing || myRole !== 'drawer') return;
+  const { x, y, nx, ny } = getCanvasPos(drawCanvas, e.clientX, e.clientY);
+  drawCtx.strokeStyle = drawColor;
+  drawCtx.lineWidth   = drawLineWidth;
+  drawCtx.lineCap     = 'round';
+  drawCtx.lineJoin    = 'round';
+  drawCtx.lineTo(x, y);
+  drawCtx.stroke();
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+  socket?.emit('team:draw', {
+    gameId, x: nx, y: ny,
+    drawing: true, color: drawColor,
+    lineWidth: drawLineWidth / drawCanvas.width
+  });
+});
+
+function stopDrawing() {
+  if (!isDrawing) return;
+  isDrawing = false;
+  drawCtx?.beginPath();
+  socket?.emit('team:draw', {
+    gameId, x: 0, y: 0,
+    drawing: false, color: drawColor,
+    lineWidth: drawLineWidth / drawCanvas.width
+  });
+}
+drawCanvas.addEventListener('mouseup',    stopDrawing);
+drawCanvas.addEventListener('mouseleave', stopDrawing);
+
+// --- Touch-händelsehanterare för ritaren (mobil) ---
+
+drawCanvas.addEventListener('touchstart', e => {
+  if (myRole !== 'drawer') return;
+  e.preventDefault();
+  const t = e.touches[0];
+  const { x, y, nx, ny } = getCanvasPos(drawCanvas, t.clientX, t.clientY);
+  isDrawing = true;
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+  socket?.emit('team:draw', {
+    gameId, x: nx, y: ny,
+    drawing: false, color: drawColor,
+    lineWidth: drawLineWidth / drawCanvas.width
+  });
+}, { passive: false });
+
+drawCanvas.addEventListener('touchmove', e => {
+  if (!isDrawing || myRole !== 'drawer') return;
+  e.preventDefault();
+  const t = e.touches[0];
+  const { x, y, nx, ny } = getCanvasPos(drawCanvas, t.clientX, t.clientY);
+  drawCtx.strokeStyle = drawColor;
+  drawCtx.lineWidth   = drawLineWidth;
+  drawCtx.lineCap     = 'round';
+  drawCtx.lineJoin    = 'round';
+  drawCtx.lineTo(x, y);
+  drawCtx.stroke();
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+  socket?.emit('team:draw', {
+    gameId, x: nx, y: ny,
+    drawing: true, color: drawColor,
+    lineWidth: drawLineWidth / drawCanvas.width
+  });
+}, { passive: false });
+
+drawCanvas.addEventListener('touchend', e => {
+  if (myRole !== 'drawer') return;
+  e.preventDefault();
+  isDrawing = false;
+  drawCtx?.beginPath();
+  socket?.emit('team:draw', {
+    gameId, x: 0, y: 0,
+    drawing: false, color: drawColor,
+    lineWidth: drawLineWidth / drawCanvas.width
+  });
+}, { passive: false });
+
+// --- Pensel-inställningar ---
+document.querySelectorAll('.brushBtn').forEach(btn => {
+  btn.onclick = () => { drawLineWidth = parseInt(btn.dataset.size); };
+});
+document.getElementById('colorPicker').oninput = e => { drawColor = e.target.value; };
+
+// Rensa canvas (ritaren klickar, broadcast till alla)
+document.getElementById('clearCanvasBtn').onclick = () => {
+  drawCtx?.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  socket?.emit('team:clearCanvas', { gameId });
+};
+
+// ====== Socket.io-händelsehanterare ======
+function bindSocketEvents() {
+
+  // --- Spelet skapades (host) ---
+  socket.on('teamGame:created', ({ gameId: gid, code, teams, totalRounds: tr }) => {
+    gameId      = gid;
+    totalRounds = tr;
+    buildTeamColorMap(teams); // Registrera lagfärger en gång
+    document.getElementById('gameCodeValue').textContent = code;
+    document.getElementById('gameCodeDisplay').classList.remove('hidden');
+    document.getElementById('lobbyTeamsList').classList.remove('hidden');
+    document.getElementById('startTeamGameBtn').classList.remove('hidden');
+    renderLobbyTeams(teams);
+  });
+
+  // --- Lobby uppdaterad (live-spelare per lag) ---
+  socket.on('teamLobby:update', ({ teams }) => {
+    buildTeamColorMap(teams); // Uppdatera färgmappning om lag tillkommer
+    if (myRole === 'host') {
+      renderLobbyTeams(teams);
+      checkStartEnabled(teams);
+    }
+  });
+
+  // --- Spelare gick med i ett lag ---
+  socket.on('player:teamJoined', ({ gameId: gid, playerId, teamId, teamName }) => {
+    gameId     = gid;
+    myPlayerId = playerId;
+    myTeamName = teamName;
+    myRole     = 'guesser'; // Grundroll för spelare (kan bli 'drawer' senare)
+    const el = document.getElementById('joinStatus');
+    el.innerHTML = `✅ Du är med i: <strong>${teamName}</strong>! Väntar på att spelet ska starta...`;
+    el.classList.remove('hidden');
+  });
+
+  // --- En delomgång startar (alla tar emot detta) ---
+  socket.on('team:roundStarted', ({ round, totalRounds: tr, drawingTeamName, drawerName, teamIndex }) => {
+    totalRounds = tr;
+
+    // Uppdatera rubriken
+    document.getElementById('roundInfo').textContent  = `Omgång ${round}/${tr}`;
+    document.getElementById('roundInfo').classList.remove('hidden');
+    document.getElementById('drawingInfo').textContent = `${drawingTeamName} ritar`;
+    document.getElementById('drawingInfo').classList.remove('hidden');
+    document.getElementById('gameStatusText').textContent =
+      `${drawingTeamName} – ${drawerName} ritar just nu`;
+
+    // Avgör roll baserat på om spelaren är i ritarlaget
+    // (myRole === 'host' ändras aldrig, myTeamName sätts för spelare)
+    if (myRole !== 'host') {
+      if (myTeamName === drawingTeamName) {
+        // I ritarlaget: kan vara gissare eller ritaren (avgörs av team:cityChoices)
+        myRole = 'guesser';
+      } else {
+        // I motståndarlaget: åskådare
+        myRole = 'spectator';
+      }
+    }
+
+    // Återställ canvas-tillstånd
+    prevDrawPoint   = null;
+    isDrawing       = false;
+    mapClickEnabled = false;
+
+    showView('gameView');
+    prepareGameView();
+  });
+
+  // --- Ritarens stadval (bara ritaren tar emot detta) ---
+  socket.on('team:cityChoices', ({ cities }) => {
+    myRole = 'drawer';
+    prepareGameView();
+
+    document.getElementById('cityChoiceSection').classList.remove('hidden');
+    const btnsContainer = document.getElementById('cityChoiceBtns');
+    btnsContainer.innerHTML = '';
+    cities.forEach((city, i) => {
+      const btn = document.createElement('button');
+      btn.textContent  = city;
+      btn.style.padding = '8px 14px';
+      btn.onclick = () => {
+        // Visa väntemeddelande, dölj val-knapparna
+        btnsContainer.innerHTML = '<span class="muted">⏳ Väntar på bekräftelse...</span>';
+        socket.emit('team:chooseCity', { gameId, cityIndex: i });
+      };
+      btnsContainer.appendChild(btn);
+    });
+  });
+
+  // --- Stad vald: bekräftelse till ritaren ---
+  socket.on('team:cityChosen', ({ cityName }) => {
+    document.getElementById('cityChoiceSection').classList.add('hidden');
+    document.getElementById('drawerCanvasSection').classList.remove('hidden');
+    document.getElementById('drawerWaitText').classList.remove('hidden');
+    document.getElementById('gameStatusText').textContent = `Du ritar: ${cityName}`;
+
+    // Initiera canvas med korrekt storlek
+    setTimeout(() => {
+      resizeCanvas(drawCanvas);
+      drawCtx = drawCanvas.getContext('2d');
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    }, 50);
+  });
+
+  // --- Ritning har börjat (alla utom ritaren) ---
+  socket.on('team:drawingStarted', ({ drawerName, teamName }) => {
+    document.getElementById('gameStatusText').textContent =
+      `${teamName} – ${drawerName} ritar just nu`;
+
+    // Initiera viewCanvas
+    setTimeout(() => {
+      resizeCanvas(viewCanvas);
+      viewCtx = viewCanvas.getContext('2d');
+      viewCtx.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
+      prevDrawPoint = null;
+    }, 50);
+  });
+
+  // --- Rita i realtid (broadcast till alla) ---
+  socket.on('team:draw', ({ x, y, drawing, color, lineWidth }) => {
+    // Bara mottagare (inte ritaren) ritar på viewCanvas
+    if (myRole === 'guesser' || myRole === 'spectator' || myRole === 'host') {
+      if (!viewCanvas.width || !viewCanvas.height) resizeCanvas(viewCanvas);
+      drawOnViewCanvas(x, y, drawing, color, lineWidth);
+    }
+  });
+
+  // --- Rensa canvas (broadcast) ---
+  socket.on('team:clearCanvas', () => {
+    prevDrawPoint = null;
+    viewCtx?.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
+  });
+
+  // --- Gissning accepterad (bara gissaren tar emot) ---
+  socket.on('team:guessAccepted', ({ km }) => {
+    document.getElementById('guessStatus').textContent =
+      `✅ Gissning registrerad: ${km} km – väntar på resultatet...`;
+    mapClickEnabled = false;
+  });
+
+  // --- Delomgångsresultat (alla tar emot) ---
+  socket.on('team:subRoundResults', ({ teamName, guesses, teamScore, target, teams }) => {
+    buildTeamColorMap(teams); // Säkerställ att lagfärger är konfigurerade för alla klienter
+    showView('resultsView');
+    initResultMap();
+    resultLayer.clearLayers();
+
+    // Markera rätt stad på kartan
+    L.marker([target.lat, target.lng])
+      .addTo(resultLayer)
+      .bindPopup(`✅ Rätt svar: ${target.name}`)
+      .openPopup();
+
+    // Rita varje gissning med en markör och linje till rätt svar.
+    // Varje spelare i laget får en unik färg för att särskilja gissningarna visuellt.
+    if (guesses?.length) {
+      guesses.forEach((g, i) => {
+        if (!g.guess) return;
+        const color = TEAM_COLORS[i % TEAM_COLORS.length];
+        L.circleMarker([g.guess.lat, g.guess.lng], {
+          radius: 8, weight: 2, color: '#000', fillColor: color, fillOpacity: 0.85
+        }).addTo(resultLayer).bindPopup(`${g.playerName}: ${g.km} km`);
+        L.polyline(
+          [[g.guess.lat, g.guess.lng], [target.lat, target.lng]],
+          { weight: 2, opacity: 0.7, dashArray: '4 6', color }
+        ).addTo(resultLayer);
+      });
+      try {
+        resultMap.fitBounds(resultLayer.getBounds(), { padding: [30, 30], maxZoom: 8 });
+      } catch (e) { /* fitBounds kan kasta om bounds är tomma */ }
+    }
+
+    // Visa textresultat för delomgången (spelare inom laget har varsin unik färg)
+    const guessList = (guesses || [])
+      .map((g, i) => {
+        const color = TEAM_COLORS[i % TEAM_COLORS.length];
+        return `<span style="color:${color}">${g.playerName}</span>: ${g.km ?? '—'} km`;
+      })
+      .join('<br/>');
+    document.getElementById('subRoundResult').innerHTML = `
+      <strong>${teamName}</strong> gissade på: <strong>${target.name}</strong><br/>
+      ${guessList}<br/>
+      <strong>Lag-poäng denna omgång: ${teamScore} km</strong>
+    `;
+
+    // Uppdatera lagställning
+    renderTeamStandings(teams);
+
+    // Visa "Nästa"-knappen bara för hosten
+    if (myRole === 'host') {
+      document.getElementById('nextSubRoundBtn').classList.remove('hidden');
+    }
+
+    // Återställ gissmarkör
+    mapClickEnabled = false;
+    if (myGuessMarker) { guessMap?.removeLayer(myGuessMarker); myGuessMarker = null; }
+  });
+
+  // --- Slutresultat (alla tar emot) ---
+  socket.on('teamGame:final', ({ leaderboard }) => {
+    renderFinalResults(leaderboard || []);
+  });
+}
+
+// ====== Förbereder spelvyn beroende på aktuell roll ======
+function prepareGameView() {
+  // Dölj alla spelsektioner
+  document.getElementById('cityChoiceSection').classList.add('hidden');
+  document.getElementById('drawerCanvasSection').classList.add('hidden');
+  document.getElementById('viewerCanvasSection').classList.add('hidden');
+  document.getElementById('mapSection').classList.add('hidden');
+
+  if (myRole === 'drawer') {
+    // Ritaren: stadval visas (cityChoiceSection hanteras av team:cityChoices)
+    document.getElementById('cityChoiceSection').classList.remove('hidden');
+
+  } else if (myRole === 'guesser') {
+    // Gissaren: viewCanvas (skrivskyddad) + klickbar karta
+    document.getElementById('viewerCanvasSection').classList.remove('hidden');
+    document.getElementById('mapSection').classList.remove('hidden');
+    document.getElementById('guessStatus').textContent = 'Placera nålen på kartan!';
+    mapClickEnabled = true;
+    initGuessMap();
+    guessLayer?.clearLayers();
+    if (myGuessMarker) { guessMap?.removeLayer(myGuessMarker); myGuessMarker = null; }
+    setTimeout(() => {
+      resizeCanvas(viewCanvas);
+      viewCtx = viewCanvas.getContext('2d');
+      viewCtx?.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
+      prevDrawPoint = null;
+    }, 50);
+    setTimeout(() => guessMap?.invalidateSize(), 150);
+
+  } else if (myRole === 'spectator') {
+    // Motståndarlaget: viewCanvas + inaktiv karta (ingen klick-gissning)
+    document.getElementById('viewerCanvasSection').classList.remove('hidden');
+    document.getElementById('mapSection').classList.remove('hidden');
+    mapClickEnabled = false;
+    const drawingInfoText = document.getElementById('drawingInfo').textContent;
+    document.getElementById('guessStatus').textContent =
+      `${drawingInfoText} – din karta är inaktiv denna omgång`;
+    initGuessMap();
+    setTimeout(() => {
+      resizeCanvas(viewCanvas);
+      viewCtx = viewCanvas.getContext('2d');
+      viewCtx?.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
+      prevDrawPoint = null;
+    }, 50);
+    setTimeout(() => guessMap?.invalidateSize(), 150);
+
+  } else if (myRole === 'host') {
+    // Hosten: viewCanvas (ser ritningen)
+    document.getElementById('viewerCanvasSection').classList.remove('hidden');
+    setTimeout(() => {
+      resizeCanvas(viewCanvas);
+      viewCtx = viewCanvas.getContext('2d');
+      viewCtx?.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
+      prevDrawPoint = null;
+    }, 50);
+  }
+}
+
+// ====== Hjälpfunktioner ======
+
+// Visa anslutna spelare per lag i lobby-listan
+function renderLobbyTeams(teams) {
+  const container = document.getElementById('lobbyTeamsList');
+  if (!teams?.length) { container.innerHTML = ''; return; }
+  container.innerHTML =
+    '<strong style="display:block;margin-bottom:6px">Anslutna spelare per lag:</strong>';
+  teams.forEach((team, i) => {
+    // Använd buildTeamColorMap:s färg om tillgänglig, annars index-baserat
+    const color   = teamColorMap.has(team.name)
+      ? getTeamColor(team.name)
+      : TEAM_COLORS[i % TEAM_COLORS.length];
+    const div     = document.createElement('div');
+    div.style.margin = '3px 0';
+    const players = (team.players || []).map(p => p.name || p).join(', ') || '—';
+    div.innerHTML = `
+      <span class="team-badge" style="background:${color}">${team.name}</span>
+      <span class="muted">${players}</span>
+    `;
+    container.appendChild(div);
+  });
+}
+
+// Aktiverar start-knappen om alla lag har 2–3 anslutna spelare
+function checkStartEnabled(teams) {
+  if (!teams?.length) return;
+  const allReady = teams.every(t => {
+    const n = (t.players || []).length;
+    return n >= 2 && n <= 3;
+  });
+  document.getElementById('startTeamGameBtn').disabled = !allReady;
+}
+
+// Renderar lagställning sorterat på lägst totalt km (lägre = bättre)
+function renderTeamStandings(teams) {
+  const list = document.getElementById('teamStandings');
+  list.innerHTML = '';
+  if (!teams?.length) return;
+
+  const sorted = [...teams].sort((a, b) => (a.totalScore || 0) - (b.totalScore || 0));
+  sorted.forEach((team, i) => {
+    const color = getTeamColor(team.name); // Konsekvent lagfärg baserat på ursprungsordning
+    const rank  = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span>${rank} <span style="color:${color};font-weight:600">${team.name}</span></span>
+      <strong>${team.totalScore ?? 0} km</strong>
+    `;
+    list.appendChild(li);
+  });
+}
+
+// Visar slutresultat-modalen med lagrankning och medaljer
+function renderFinalResults(leaderboard) {
+  const list = document.getElementById('finalList');
+  list.innerHTML = '';
+  leaderboard.forEach((team, i) => {
+    const color = getTeamColor(team.name); // Behåll konsekvent lagfärg
+    const rank  = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span>${rank} <span style="color:${color};font-weight:600">${team.name}</span></span>
+      <strong>${team.totalScore ?? 0} km</strong>
+    `;
+    list.appendChild(li);
+  });
+  document.getElementById('finalModal').style.display = 'flex';
+}
+
+document.getElementById('finalClose').onclick = () => {
+  document.getElementById('finalModal').style.display = 'none';
+};
+
+// Nästa delomgång (bara hosten)
+document.getElementById('nextSubRoundBtn').onclick = function () {
+  socket?.emit('host:nextTeamSubRound', { gameId });
+  this.classList.add('hidden');
+  showView('gameView');
+};
+
+// ====== Anslut automatiskt vid sidladdning ======
+connect();
+</script>
+</body>
+</html>
