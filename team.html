@@ -116,6 +116,15 @@
       <input type="number" id="totalRoundsInput" value="12" min="1" max="30" style="width:60px"/>
     </div>
 
+    <!-- Spelare per lag -->
+    <div class="row" style="margin:6px 0">
+      <label>Spelare per lag:</label>
+      <select id="playersPerTeamSelect">
+        <option value="2">2</option>
+        <option value="3">3</option>
+      </select>
+    </div>
+
     <!-- Poängsättningsläge -->
     <div class="row" style="margin:6px 0">
       <label>Poängsättning:</label>
@@ -279,6 +288,7 @@ let isHost  = false;
 // Rollen null används tills spelaren anslutit till ett lag
 let myRole  = null;
 let myTeamName  = null;     // Spelarens lagnamn (sätts vid player:teamJoined)
+let myTeamId    = null;     // Spelarens lag-ID (sätts vid player:teamJoined)
 let myPlayerId  = null;     // Spelarens ID
 let currentGameCode = null; // Spelkoden – används av hosten vid lag-join
 let totalRounds = 12;
@@ -395,14 +405,20 @@ document.getElementById('createTeamGameBtn').onclick = () => {
   const scoringMode = document.getElementById('scoringModeSelect').value;
 
   // Samla bara lagnamn – spelarna anger sina egna namn i väntrumet
-  const teams = [];
+  const teamNames = [];
   for (let t = 0; t < numTeams; t++) {
     const nameInput = teamsConfig.querySelector(`.teamNameInput[data-team="${t}"]`);
-    const teamName  = (nameInput?.value || `Lag ${t + 1}`).trim();
-    teams.push({ name: teamName });
+    teamNames.push((nameInput?.value || `Lag ${t + 1}`).trim());
   }
+  const playersPerTeam = parseInt(document.getElementById('playersPerTeamSelect').value, 10) || 2;
 
-  socket.emit('host:createTeamGame', { totalRounds: totalRoundsVal, scoringMode, teams });
+  socket.emit('host:createTeamGame', {
+    totalRounds: totalRoundsVal,
+    scoringMode,
+    numTeams,
+    teamNames,
+    playersPerTeam
+  });
 };
 
 // Host: Starta spelet (aktiveras när alla lag har minst 2 spelare)
@@ -685,8 +701,9 @@ function bindSocketEvents() {
     // Uppdatera live-listan för alla
     renderLobbyTeams(teams);
 
-    // Uppdatera lagknapparna med aktuellt spelarantal (om de visas)
-    if (document.getElementById('lobbyTeamBtns').style.display !== 'none') {
+    // Visa/uppdatera lagknapparna om join-formuläret fortfarande är synligt (spelare har inte valt lag än)
+    const joinSection = document.getElementById('lobbyJoinSection');
+    if (joinSection && joinSection.style.display !== 'none') {
       renderLobbyTeamBtns(teams);
     }
 
@@ -699,6 +716,7 @@ function bindSocketEvents() {
     gameId     = gid;
     myPlayerId = playerId;
     myTeamName = teamName;
+    myTeamId   = teamId;
     myRole     = 'guesser'; // Grundroll för spelare (kan bli 'drawer' senare)
 
     // Dölj join-formuläret nu när spelaren valt lag
@@ -922,19 +940,21 @@ function prepareGameView() {
 
 // ====== Hjälpfunktioner ======
 
-// Renderar lagknappar i join-formuläret med aktuellt spelarantal och max 3 per lag
+// Renderar lagknappar i join-formuläret med aktuellt spelarantal och maxgräns från servern
 function renderLobbyTeamBtns(teams) {
   const container = document.getElementById('lobbyTeamBtns');
   container.innerHTML = '';
 
   teams.forEach(team => {
-    const color  = getTeamColor(team.name);
-    const count  = (team.players || []).length;
-    const isFull = count >= MAX_PLAYERS_PER_TEAM;
+    const color      = getTeamColor(team.name);
+    const maxPlayers = team.maxPlayers || MAX_PLAYERS_PER_TEAM;
+    // Räkna bara faktiska spelare (inte tomma platser med id === null)
+    const count  = (team.players || []).filter(p => p.id !== null).length;
+    const isFull = count >= maxPlayers;
     const btn    = document.createElement('button');
     btn.textContent    = isFull
       ? `${team.name} (fullt)`
-      : `Gå med i ${team.name} (${count}/${MAX_PLAYERS_PER_TEAM})`;
+      : `Gå med i ${team.name} (${count}/${maxPlayers})`;
     btn.disabled       = isFull;
     btn.style.background = isFull ? '#bbb' : color;
     btn.style.color      = '#fff';
@@ -964,14 +984,17 @@ function renderLobbyTeams(teams) {
       : TEAM_COLORS[i % TEAM_COLORS.length];
     const div = document.createElement('div');
     div.style.margin = '4px 0';
-    // Visa varje spelare med grön (online) eller grå (offline) prick
-    // p.online saknas (undefined) tolkas som online; explicit false = offline
+    // Visa varje plats: grön prick = ansluten spelare, grå prick = tom plats
     const players = (team.players || []).map(p => {
-      const online = p.online !== false; // undefined → online, false → offline
-      const dot    = online
+      if (!p.name) {
+        // Tom plats (id === null)
+        return '<span class="dot-offline"></span><span class="muted">Tom plats</span>';
+      }
+      const connected = p.connected !== false; // explicit false → offline, annars online
+      const dot = connected
         ? '<span class="dot-online"></span>'
         : '<span class="dot-offline"></span>';
-      return `${dot}${p.name || p}`;
+      return `${dot}${p.name}`;
     }).join(', ') || '<span class="muted">—</span>';
     div.innerHTML = `
       <span class="team-badge" style="background:${color}">${team.name}</span>
@@ -981,10 +1004,14 @@ function renderLobbyTeams(teams) {
   });
 }
 
-// Aktiverar starta-knappen om alla lag har minst 2 anslutna spelare
+// Aktiverar starta-knappen om alla lag har fyllt sina platser med anslutna spelare
 function checkStartEnabled(teams) {
   if (!teams?.length) return;
-  const allReady = teams.every(t => (t.players || []).length >= 2);
+  const allReady = teams.every(t => {
+    const maxPlayers = t.maxPlayers || 2;
+    const connectedCount = (t.players || []).filter(p => p.connected === true).length;
+    return connectedCount >= maxPlayers;
+  });
   const btn = document.getElementById('startTeamGameBtn');
   btn.disabled    = !allReady;
   btn.textContent = allReady ? '▶ Starta spelet' : '⏳ Väntar på spelare...';
