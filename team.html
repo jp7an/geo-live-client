@@ -390,9 +390,13 @@ document.getElementById('backToStartFromHostBtn').onclick = () => {
 // ====== Socket.io: Anslut till servern ======
 function connect() {
   if (socket) return;
-  socket = io(SERVER_URL, { transports: ['websocket'] });
+  socket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
   socket.on('connect',    () => document.getElementById('status').textContent = 'Ansluten');
   socket.on('disconnect', () => document.getElementById('status').textContent = 'Inte ansluten');
+  socket.on('connect_error', (err) => {
+    document.getElementById('status').textContent = 'Anslutningsfel – försöker igen…';
+    console.error('Socket connect_error:', err.message, err.description ?? '', err.context ?? '');
+  });
   bindSocketEvents();
 }
 
