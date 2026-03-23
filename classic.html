@@ -733,7 +733,7 @@ function bindSocketEvents() {
         btn.textContent = word;
         btn.onclick = () => {
           wordBtns.innerHTML = '<span class="muted">⏳ Väntar på bekräftelse...</span>';
-          socket.emit('classic:pickWord', { gameId, wordIndex: i });
+          socket.emit('classic:pickWord', { gameId, word });
         };
         wordBtns.appendChild(btn);
       });
