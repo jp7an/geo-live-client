@@ -135,13 +135,13 @@
       </select>
     </div>
     <div class="row" style="margin:8px 0">
-      <label>Rittid per runda:</label>
-      <select id="drawTimeSec">
-        <option value="30">30 s</option>
-        <option value="45">45 s</option>
-        <option value="60" selected>60 s</option>
-        <option value="90">90 s</option>
-        <option value="120">120 s</option>
+      <label>Rittid per omgång:</label>
+      <select id="drawTimeSelect">
+        <option value="30">30 sekunder</option>
+        <option value="45">45 sekunder</option>
+        <option value="60" selected>60 sekunder</option>
+        <option value="90">90 sekunder</option>
+        <option value="120">120 sekunder</option>
       </select>
     </div>
     <div class="row" style="margin-top:12px">
@@ -293,7 +293,8 @@ let prevDrawPoint = null;
 
 // Timer state
 let timerInterval = null;
-let timerSecondsLeft = 60;
+let timerSecondsLeft = ROUND_DURATION_SEC;
+let currentRoundDuration = ROUND_DURATION_SEC;
 
 // ====== DOM refs ======
 const drawCanvas = document.getElementById('drawCanvas');
@@ -490,7 +491,7 @@ document.getElementById('guessInput').addEventListener('keydown', e => {
 // ====== Timer ======
 function startTimer() {
   clearInterval(timerInterval);
-  timerSecondsLeft = roundDurationSec;
+  timerSecondsLeft = currentRoundDuration;
   const fill  = document.getElementById('timerFill');
   const label = document.getElementById('timerLabel');
   const wrap  = document.getElementById('timerBarWrap');
@@ -505,7 +506,7 @@ function startTimer() {
       clearInterval(timerInterval);
       timerSecondsLeft = 0;
     }
-    const pct = (timerSecondsLeft / roundDurationSec) * 100;
+    const pct = (timerSecondsLeft / currentRoundDuration) * 100;
     fill.style.width = pct + '%';
     fill.style.background = timerSecondsLeft <= 15 ? 'var(--red)' : 'var(--accent)';
     label.textContent = `${timerSecondsLeft}s`;
@@ -534,10 +535,8 @@ document.getElementById('createGameBtn').onclick = async () => {
   myName = name;
   isHost = true;
   const totalRoundsPerPlayer = parseInt(document.getElementById('roundsPerPlayerSelect').value, 10) || 4;
-  const drawTimeSec = parseInt(document.getElementById('drawTimeSec').value, 10) || 60;
-  const emit = () => socket.emit('host:createClassicGame', { totalRoundsPerPlayer, hostName: name, drawTimeSec });
-  if (socket.connected) emit();
-  else socket.once('connect', emit);
+  const drawTimeSec = parseInt(document.getElementById('drawTimeSelect').value, 10) || 60;
+  socket.emit('host:createClassicGame', { totalRoundsPerPlayer, hostName: name, drawTimeSec });
 };
 
 document.getElementById('copyCodeBtn').onclick = () => {
@@ -694,6 +693,8 @@ function bindSocketEvents() {
 
   // Round started
   socket.on('classicRound:start', ({ roundNumber, totalRounds, drawerId, drawerName, wordOptions, drawTimeSec }) => {
+    // store the draw time for this round
+    currentRoundDuration = drawTimeSec || ROUND_DURATION_SEC;
     isDrawer = (myId === drawerId || socket.id === drawerId);
     roundDurationSec = drawTimeSec || 60;
 
