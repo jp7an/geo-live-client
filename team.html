@@ -572,9 +572,15 @@ function drawOnViewCanvas(nx, ny, drawing, color, normalizedLineWidth) {
 // Hämtar musposition relativt canvasytan, normaliserat till 0–1
 function getCanvasPos(canvas, clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    // Canvas not yet laid out — attempt resize so subsequent events work correctly
+    resizeCanvas(canvas);
+  }
+  const cw = canvas.width  || 1;
+  const ch = canvas.height || 1;
   const x = clientX - rect.left;
   const y = clientY - rect.top;
-  return { x, y, nx: x / canvas.width, ny: y / canvas.height };
+  return { x, y, nx: x / cw, ny: y / ch };
 }
 
 // --- Mus-händelsehanterare för ritaren ---
@@ -782,7 +788,7 @@ function bindSocketEvents() {
     btnsContainer.innerHTML = '';
     cities.forEach((city, i) => {
       const btn = document.createElement('button');
-      btn.textContent  = city;
+      btn.textContent  = city.name;
       btn.style.padding = '8px 14px';
       btn.onclick = () => {
         // Visa väntemeddelande, dölj val-knapparna
@@ -800,12 +806,12 @@ function bindSocketEvents() {
     document.getElementById('drawerWaitText').classList.remove('hidden');
     document.getElementById('gameStatusText').textContent = `Du ritar: ${cityName}`;
 
-    // Initiera canvas med korrekt storlek
-    setTimeout(() => {
+    // Double rAF ensures layout has run before we read getBoundingClientRect
+    requestAnimationFrame(() => requestAnimationFrame(() => {
       resizeCanvas(drawCanvas);
       drawCtx = drawCanvas.getContext('2d');
       drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-    }, 50);
+    }));
   });
 
   // --- Ritning har börjat (alla utom ritaren) ---
@@ -814,12 +820,12 @@ function bindSocketEvents() {
       `${teamName} – ${drawerName} ritar just nu`;
 
     // Initiera viewCanvas
-    setTimeout(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
       resizeCanvas(viewCanvas);
       viewCtx = viewCanvas.getContext('2d');
       viewCtx.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
       prevDrawPoint = null;
-    }, 50);
+    }));
   });
 
   // --- Rita i realtid (broadcast till alla) ---
@@ -929,12 +935,12 @@ function prepareGameView() {
     initGuessMap();
     guessLayer?.clearLayers();
     if (myGuessMarker) { guessMap?.removeLayer(myGuessMarker); myGuessMarker = null; }
-    setTimeout(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
       resizeCanvas(viewCanvas);
       viewCtx = viewCanvas.getContext('2d');
       viewCtx?.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
       prevDrawPoint = null;
-    }, 50);
+    }));
     setTimeout(() => guessMap?.invalidateSize(), 150);
 
   } else if (myRole === 'spectator') {
@@ -946,12 +952,12 @@ function prepareGameView() {
     document.getElementById('guessStatus').textContent =
       `${drawingInfoText} – din karta är inaktiv denna omgång`;
     initGuessMap();
-    setTimeout(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
       resizeCanvas(viewCanvas);
       viewCtx = viewCanvas.getContext('2d');
       viewCtx?.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
       prevDrawPoint = null;
-    }, 50);
+    }));
     setTimeout(() => guessMap?.invalidateSize(), 150);
   }
 }
