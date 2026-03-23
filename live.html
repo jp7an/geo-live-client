@@ -163,7 +163,7 @@
     const finalClose = document.getElementById('finalClose');
 
     // State
-    let socket = null, gameId = null, myRole = 'player', myPlayerName = '', myTotal = 0;
+    let socket = null, _connectPromise = null, gameId = null, myRole = 'player', myPlayerName = '', myTotal = 0;
     let deadlineAt = null, timerTick = null;
     let hostToken = null;
     let myGuessMarker = null; // Marker för spelarens aktiva gissning
@@ -187,12 +187,21 @@
     };
     roleSel.onchange();
 
-    // Anslut
-    function connect() {
-      if (socket) return true;
-      socket = io(SERVER_URL, { transports: ['websocket'] });
-      socket.on('connect', () => status.textContent = 'Ansluten');
-      socket.on('disconnect', () => status.textContent = 'Inte ansluten');
+    // Anslut (med wake-up ping för Render)
+    async function connect() {
+      if (socket) return;
+      if (!_connectPromise) {
+        _connectPromise = (async () => {
+          status.textContent = 'Väcker servern – vänta…';
+          try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 60000);
+            await fetch(SERVER_URL + '/health', { signal: ctrl.signal });
+            clearTimeout(tid);
+          } catch (_) { /* fortsätt ändå */ }
+          socket = io(SERVER_URL, { transports: ['websocket', 'polling'], timeout: 60000 });
+          socket.on('connect', () => status.textContent = 'Ansluten');
+          socket.on('disconnect', () => status.textContent = 'Inte ansluten');
 
       // === Spelstatus / skapande ===
       socket.on('game:created', (payload) => {
@@ -321,9 +330,10 @@
 
       // Spelare får gameId lokalt (för säker gissning)
       socket.on('player:joined', ({ gameId: gid }) => { gameId = gid; });
-
-      return true;
-    }
+    })();
+  }
+  return _connectPromise;
+}
 
     // Timer helpers
     function startTimer() {
@@ -369,8 +379,8 @@
     finalClose.onclick = () => { finalModal.style.display = 'none'; };
 
     // Reclaim om möjligt
-    function tryReclaimOrEnableCreate() {
-      if (!connect()) return;
+    async function tryReclaimOrEnableCreate() {
+      await connect();
       const storedGameId = localStorage.getItem('hostGameId');
       const storedToken = localStorage.getItem('hostToken');
       if (storedGameId && storedToken) {
@@ -389,8 +399,8 @@
     }
 
     // === Host: skapa spel efter att ha valt inställningar ===
-    createGame.onclick = () => {
-      if (!connect()) return;
+    createGame.onclick = async () => {
+      await connect();
       createGame.disabled = true;
       socket.emit('host:createGame', {
         roundTimeSec: parseInt(roundTime.value, 10),
@@ -414,8 +424,8 @@
     endGame.onclick = () => { socket.emit('host:endGame', { gameId }); };
 
     // Spelare: gå med
-    joinBtn.onclick = () => {
-      if (!connect()) return;
+    joinBtn.onclick = async () => {
+      await connect();
       const code = (joinCode.value || '').replace(/\D/g,'');
       if (!code) return alert('Skriv koden (6 siffror).');
       myPlayerName = (playerName.value || 'Spelare').trim();
