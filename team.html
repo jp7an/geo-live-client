@@ -401,7 +401,7 @@ async function connect() {
         await fetch(SERVER_URL + '/health', { signal: ctrl.signal });
         clearTimeout(tid);
       } catch (_) { /* fortsätt ändå */ }
-      socket = io(SERVER_URL, { transports: ['websocket', 'polling'], timeout: 60000 });
+      socket = io(SERVER_URL, { transports: ['websocket'] });
       socket.on('connect',    () => statusEl.textContent = 'Ansluten');
       socket.on('disconnect', () => statusEl.textContent = 'Inte ansluten');
       socket.on('connect_error', (err) => {
