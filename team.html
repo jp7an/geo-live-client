@@ -473,7 +473,7 @@ function handleJoinTeamClick(teamId) {
   const name = (document.getElementById('lobbyNameInput').value || '').trim();
   if (!name) return alert('Skriv ditt namn.');
   if (!code) return alert('Spelkoden saknas.');
-  socket.emit('player:joinTeamByTeamId', { code, name, teamId });
+  socket.emit('player:joinTeamLobby', { code, name, teamId });
 }
 
 // ====== Leaflet-kartor ======
