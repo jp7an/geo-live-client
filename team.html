@@ -222,6 +222,13 @@
   <div id="mapSection" class="hidden">
     <div id="map"></div>
     <div id="guessStatus" class="box muted">Placera nålen på kartan!</div>
+    <!-- Lås in svar – visas bara för gissaren, döljs för åskådaren -->
+    <div id="lockInSection" class="hidden" style="padding:8px 12px">
+      <button id="lockInBtn" disabled
+              style="padding:10px 20px;font-size:15px;background:#1e88e5;color:#fff;border:none;border-radius:6px;cursor:pointer">
+        🔒 Lås in svar
+      </button>
+    </div>
   </div>
 
 </div>
@@ -294,6 +301,11 @@ let myPlayerId  = null;     // Spelarens ID
 let currentGameCode = null; // Spelkoden – används av hosten vid lag-join
 let totalRounds = 12;
 let numTeams    = 2;        // Antal lag att konfigurera (host-setup)
+
+// Gissnings-tillstånd (provisorisk nål innan inlåsning)
+let myProvisionalLat = null;
+let myProvisionalLng = null;
+let guessLocked      = false; // Sant efter att gissaren tryckt "Lås in svar"
 
 // Canvas-tillstånd
 let isDrawing    = false;
@@ -497,12 +509,20 @@ function initGuessMap() {
   }).addTo(guessMap);
   guessLayer = L.layerGroup().addTo(guessMap);
 
-  // Klick på kartan = gissning (bara om mapClickEnabled är sant)
+  // Klick på kartan = provisorisk nål (bara om mapClickEnabled är sant)
+  // Svaret skickas INTE förrän "Lås in svar" trycks
   guessMap.on('click', e => {
     if (!mapClickEnabled || !socket || !gameId) return;
     if (myGuessMarker) guessMap.removeLayer(myGuessMarker);
+    myProvisionalLat = e.latlng.lat;
+    myProvisionalLng = e.latlng.lng;
     myGuessMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(guessMap);
-    socket.emit('team:submitGuess', { gameId, lat: e.latlng.lat, lng: e.latlng.lng });
+    // Aktivera "Lås in svar"-knappen
+    const lockBtn = document.getElementById('lockInBtn');
+    if (lockBtn && !guessLocked) {
+      lockBtn.disabled = false;
+      document.getElementById('guessStatus').textContent = 'Tryck "Lås in svar" för att bekräfta!';
+    }
   });
 }
 
@@ -691,6 +711,23 @@ document.getElementById('clearCanvasBtn').onclick = () => {
   socket?.emit('team:clearCanvas', { gameId });
 };
 
+// ====== "Lås in svar"-knapp ======
+const _lockInBtn = document.getElementById('lockInBtn');
+if (_lockInBtn) {
+  _lockInBtn.onclick = () => {
+    if (myProvisionalLat === null || myProvisionalLng === null) return;
+    if (!socket || !gameId) return;
+    if (guessLocked) return;
+    socket.emit('team:submitGuess', { gameId, lat: myProvisionalLat, lng: myProvisionalLng });
+    guessLocked      = true;
+    mapClickEnabled  = false;
+    const lockBtn    = document.getElementById('lockInBtn');
+    lockBtn.disabled = true;
+    lockBtn.textContent = '✅ Svar inlåst';
+    document.getElementById('guessStatus').textContent = '✅ Svar inlåst – väntar på de andra...';
+  };
+}
+
 // ====== Socket.io-händelsehanterare ======
 function bindSocketEvents() {
 
@@ -748,7 +785,53 @@ function bindSocketEvents() {
   });
 
   // --- En delomgång startar (alla tar emot detta) ---
-  socket.on('team:roundStarted', ({ round, totalRounds: tr, drawingTeamName, drawerName, teamIndex }) => {
+  // Primär händelse: server skickar drawerId så att klienten kan avgöra roll exakt
+  socket.on('team:subRoundStarted', ({ drawerId, teamId, cityOptions, roundNumber, subRound }) => {
+    // Uppdatera rubriken
+    const displayRound = roundNumber || subRound || '';
+    document.getElementById('roundInfo').textContent = `Omgång ${displayRound}`;
+    document.getElementById('roundInfo').classList.remove('hidden');
+
+    // Avgör roll baserat på spelar-ID och lag-ID
+    if (myPlayerId && myPlayerId === drawerId) {
+      myRole = 'drawer';
+    } else if (myTeamId && myTeamId === teamId) {
+      myRole = 'guesser';
+    } else {
+      myRole = 'spectator';
+    }
+
+    // Återställ canvas- och gissningstillstånd
+    prevDrawPoint    = null;
+    isDrawing        = false;
+    mapClickEnabled  = false;
+    myProvisionalLat = null;
+    myProvisionalLng = null;
+    guessLocked      = false;
+
+    showView('gameView');
+    prepareGameView();
+
+    // Visa stadsval för ritaren om cityOptions ingår i händelsen
+    if (myRole === 'drawer' && cityOptions?.length) {
+      document.getElementById('cityChoiceSection').classList.remove('hidden');
+      const btnsContainer = document.getElementById('cityChoiceBtns');
+      btnsContainer.innerHTML = '';
+      cityOptions.forEach((city, i) => {
+        const btn = document.createElement('button');
+        btn.textContent   = typeof city === 'string' ? city : city.name;
+        btn.style.padding = '8px 14px';
+        btn.onclick = () => {
+          btnsContainer.innerHTML = '<span class="muted">⏳ Väntar på bekräftelse...</span>';
+          socket.emit('team:chooseCity', { gameId, cityIndex: i });
+        };
+        btnsContainer.appendChild(btn);
+      });
+    }
+  });
+
+  // Bakåtkompatibilitet: äldre server-event utan drawerId
+  socket.on('team:roundStarted', ({ round, totalRounds: tr, drawingTeamName, drawerName, drawerId, teamId }) => {
     totalRounds = tr;
 
     // Uppdatera rubriken
@@ -759,20 +842,23 @@ function bindSocketEvents() {
     document.getElementById('gameStatusText').textContent =
       `${drawingTeamName} – ${drawerName} ritar just nu`;
 
-    // Avgör roll baserat på om spelaren är i ritarlaget
-    // (hosten är nu en riktig spelare och tilldelas en roll precis som alla andra)
-    if (myTeamName === drawingTeamName) {
-      // I ritarlaget: kan vara gissare eller ritaren (avgörs av team:cityChoices)
-      myRole = 'guesser';
+    // Avgör roll – använd drawerId om tillgänglig, annars lagnamn som fallback
+    if (drawerId && myPlayerId) {
+      myRole = myPlayerId === drawerId ? 'drawer'
+             : (myTeamId === teamId ? 'guesser' : 'spectator');
+    } else if (myTeamName === drawingTeamName) {
+      myRole = 'guesser'; // Kan uppgraderas till 'drawer' av team:cityChoices
     } else {
-      // I motståndarlaget: åskådare
       myRole = 'spectator';
     }
 
-    // Återställ canvas-tillstånd
-    prevDrawPoint   = null;
-    isDrawing       = false;
-    mapClickEnabled = false;
+    // Återställ canvas- och gissningstillstånd
+    prevDrawPoint    = null;
+    isDrawing        = false;
+    mapClickEnabled  = false;
+    myProvisionalLat = null;
+    myProvisionalLng = null;
+    guessLocked      = false;
 
     showView('gameView');
     prepareGameView();
@@ -847,7 +933,19 @@ function bindSocketEvents() {
   socket.on('team:guessAccepted', ({ km }) => {
     document.getElementById('guessStatus').textContent =
       `✅ Gissning registrerad: ${km} km – väntar på resultatet...`;
-    mapClickEnabled = false;
+    mapClickEnabled  = false;
+    guessLocked      = true;
+    const lockBtn    = document.getElementById('lockInBtn');
+    if (lockBtn) { lockBtn.disabled = true; lockBtn.textContent = '✅ Svar inlåst'; }
+  });
+
+  // --- Låst gissning broadcastad (åskådare ser motstånarnas nålar i realtid) ---
+  socket.on('team:guessSubmitted', ({ playerName, lat, lng }) => {
+    if (myRole === 'spectator' && guessLayer && guessMap) {
+      L.circleMarker([lat, lng], {
+        radius: 8, weight: 2, color: '#333', fillColor: '#fb8c00', fillOpacity: 0.85
+      }).addTo(guessLayer).bindPopup(`📍 ${playerName}`);
+    }
   });
 
   // --- Delomgångsresultat (alla tar emot) ---
@@ -903,9 +1001,14 @@ function bindSocketEvents() {
       document.getElementById('nextSubRoundBtn').classList.remove('hidden');
     }
 
-    // Återställ gissmarkör
-    mapClickEnabled = false;
+    // Återställ gissmarkör och lock-in-tillstånd
+    mapClickEnabled  = false;
+    myProvisionalLat = null;
+    myProvisionalLng = null;
+    guessLocked      = false;
     if (myGuessMarker) { guessMap?.removeLayer(myGuessMarker); myGuessMarker = null; }
+    const lockBtn = document.getElementById('lockInBtn');
+    if (lockBtn) { lockBtn.disabled = true; lockBtn.textContent = '🔒 Lås in svar'; }
   });
 
   // --- Slutresultat (alla tar emot) ---
@@ -921,15 +1024,20 @@ function prepareGameView() {
   document.getElementById('drawerCanvasSection').classList.add('hidden');
   document.getElementById('viewerCanvasSection').classList.add('hidden');
   document.getElementById('mapSection').classList.add('hidden');
+  document.getElementById('lockInSection').classList.add('hidden');
 
   if (myRole === 'drawer') {
-    // Ritaren: stadval visas (cityChoiceSection hanteras av team:cityChoices)
+    // Ritaren: stadval visas (cityChoiceSection fylls av team:subRoundStarted / team:cityChoices)
     document.getElementById('cityChoiceSection').classList.remove('hidden');
 
   } else if (myRole === 'guesser') {
-    // Gissaren: viewCanvas (skrivskyddad) + klickbar karta
+    // Gissaren: viewCanvas (skrivskyddad) + klickbar karta + "Lås in svar"-knapp
     document.getElementById('viewerCanvasSection').classList.remove('hidden');
     document.getElementById('mapSection').classList.remove('hidden');
+    document.getElementById('lockInSection').classList.remove('hidden');
+    const lockBtn = document.getElementById('lockInBtn');
+    lockBtn.disabled    = true;
+    lockBtn.textContent = '🔒 Lås in svar';
     document.getElementById('guessStatus').textContent = 'Placera nålen på kartan!';
     mapClickEnabled = true;
     initGuessMap();
@@ -944,14 +1052,15 @@ function prepareGameView() {
     setTimeout(() => guessMap?.invalidateSize(), 150);
 
   } else if (myRole === 'spectator') {
-    // Motståndarlaget: viewCanvas + inaktiv karta (ingen klick-gissning)
+    // Motståndarlaget: viewCanvas + karta där motståndarnas låsta nålar visas
     document.getElementById('viewerCanvasSection').classList.remove('hidden');
     document.getElementById('mapSection').classList.remove('hidden');
     mapClickEnabled = false;
-    const drawingInfoText = document.getElementById('drawingInfo').textContent;
     document.getElementById('guessStatus').textContent =
-      `${drawingInfoText} – din karta är inaktiv denna omgång`;
+      'Åskådarläge – se motståndarnas gissningar dyka upp på kartan';
     initGuessMap();
+    guessLayer?.clearLayers();
+    if (myGuessMarker) { guessMap?.removeLayer(myGuessMarker); myGuessMarker = null; }
     requestAnimationFrame(() => requestAnimationFrame(() => {
       resizeCanvas(viewCanvas);
       viewCtx = viewCanvas.getContext('2d');
