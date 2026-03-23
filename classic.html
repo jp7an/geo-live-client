@@ -570,7 +570,7 @@ document.getElementById('startGameBtn').onclick = () => {
 };
 
 document.getElementById('nextRoundBtn').onclick = () => {
-  if (socket && gameId) socket.emit('classic:nextRound', { gameId });
+  if (socket && gameId) socket.emit('host:nextClassicRound', { gameId });
 };
 
 document.getElementById('finalCloseBtn').onclick = () => {
@@ -752,12 +752,14 @@ function bindSocketEvents() {
   });
 
   // Drawing started (word picked by drawer)
-  socket.on('classic:drawingStarted', ({ word }) => {
+  socket.on('classic:drawingStarted', ({ drawerId }) => {
+    isDrawer = (myId === drawerId);
+    showMainView('gameView');
     // Hide word choice, show draw canvas for drawer
     document.getElementById('wordChoiceSection').classList.add('hidden');
 
     if (isDrawer) {
-      document.getElementById('gameStatusText').textContent = `Du ritar: ${word}`;
+      document.getElementById('gameStatusText').textContent = `Du ritar!`;
       document.getElementById('drawerSection').classList.remove('hidden');
       requestAnimationFrame(() => requestAnimationFrame(() => {
         resizeCanvas(drawCanvas);
@@ -765,7 +767,6 @@ function bindSocketEvents() {
         drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       }));
     } else {
-      // Guessers: just start the timer — word is hidden until round ends
       document.getElementById('guesserSection').classList.remove('hidden');
     }
 
@@ -800,14 +801,14 @@ function bindSocketEvents() {
   });
 
   // Round ended
-  socket.on('classic:roundEnd', ({ word, scores, nextDrawerId, nextDrawerName }) => {
+  socket.on('classic:roundEnd', ({ word, roundScores, nextDrawerId, nextDrawerName }) => {
     stopTimer();
     showMainView('roundEndView');
 
     document.getElementById('roundWordReveal').innerHTML =
       `Ordet var: <strong>${escHtml(word)}</strong>`;
 
-    renderRoundScores(scores);
+    renderRoundScores(roundScores);
 
     const isNextDrawer = (nextDrawerId && (myId === nextDrawerId || socket.id === nextDrawerId));
     const nextBtn  = document.getElementById('nextRoundBtn');
