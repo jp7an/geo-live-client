@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Rita &amp; Gissa</title>
+  <style>
+    :root { --border:#d0d7de; --accent:#1e88e5; --green:#43a047; --red:#e53935 }
+    * { box-sizing:border-box }
+    body { margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; background:#f9fafb }
+    header {
+      padding:8px 14px; display:flex; gap:8px; align-items:center;
+      border-bottom:1px solid var(--border); background:#fff; flex-wrap:wrap
+    }
+    .pill {
+      border:1px solid var(--border); border-radius:999px;
+      padding:2px 10px; font-size:12px; background:#f3f4f6
+    }
+    .box { padding:12px 14px }
+    input, select, button { padding:7px 10px; font-size:14px; border-radius:6px; border:1px solid var(--border) }
+    button { cursor:pointer; background:#fff }
+    button:disabled { opacity:.5; cursor:default }
+    .btn-primary {
+      background:var(--accent); color:#fff; border:none;
+      padding:10px 18px; font-size:15px; border-radius:8px
+    }
+    .btn-green { background:var(--green); color:#fff; border:none; border-radius:6px }
+    .btn-small { padding:4px 8px; font-size:12px }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+    .muted { color:#666; font-size:12px }
+    .hidden { display:none }
+    h2, h3 { margin:0 0 10px }
+    .card {
+      background:#fff; border:1px solid var(--border); border-radius:10px;
+      padding:14px; margin:10px 0
+    }
+
+    /* Canvas */
+    #drawCanvas {
+      width:100%; aspect-ratio:4/3;
+      border:1px solid var(--border); cursor:crosshair;
+      touch-action:none; background:#fff; display:block; border-radius:6px
+    }
+    #viewCanvas {
+      width:100%; aspect-ratio:4/3;
+      border:1px solid var(--border);
+      background:#fff; display:block; border-radius:6px
+    }
+    #canvasTools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 0 }
+
+    /* Timer */
+    #timerBar {
+      height:6px; background:#e0e0e0; border-radius:3px; overflow:hidden; margin:6px 0
+    }
+    #timerFill { height:100%; background:var(--accent); transition:width .2s linear; border-radius:3px }
+
+    /* Guesses list */
+    #guessesList { list-style:none; padding:0; margin:4px 0 }
+    #guessesList li {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:6px 8px; border-bottom:1px solid #f0f0f0; gap:8px
+    }
+    .guess-correct { color:var(--green); font-weight:600 }
+    .guess-wrong   { color:#888 }
+
+    /* Scoreboard */
+    #scoreList, #finalList { list-style:none; padding:0; margin:4px 0 }
+    #scoreList li, #finalList li {
+      display:flex; justify-content:space-between;
+      padding:6px 8px; border-bottom:1px solid #eee
+    }
+
+    /* Player list in lobby */
+    #playerList { list-style:none; padding:0; margin:4px 0 }
+    #playerList li { padding:4px 0; border-bottom:1px solid #f0f0f0 }
+
+    /* Word choice buttons */
+    .word-btn {
+      padding:10px 18px; font-size:15px; border-radius:8px;
+      border:1px solid var(--border); background:#fff; cursor:pointer; margin:4px
+    }
+    .word-btn:hover { background:var(--accent); color:#fff; border-color:var(--accent) }
+
+    /* Modal */
+    .modal {
+      position:fixed; inset:0; background:rgba(0,0,0,.45);
+      display:none; align-items:center; justify-content:center; padding:16px; z-index:100
+    }
+    .modal.active { display:flex }
+    .modal-card {
+      background:#fff; border-radius:16px; padding:20px;
+      max-width:440px; width:100%; box-shadow:0 10px 30px rgba(0,0,0,.25)
+    }
+
+    #credit { position:fixed; right:10px; bottom:8px; opacity:.4; font-size:11px; pointer-events:none }
+  </style>
+</head>
+<body>
+
+<header>
+  <strong>🎨 Rita &amp; Gissa</strong>
+  <span id="status" class="muted">Inte ansluten</span>
+  <span id="roundPill" class="pill hidden">—</span>
+  <span id="timerPill" class="pill hidden">—</span>
+</header>
+
+<!-- ===== LOBBY ===== -->
+<div id="lobbyView" class="box">
+
+  <!-- A: Start -->
+  <div id="startView">
+    <h3>Rita &amp; Gissa</h3>
+    <p class="muted" style="margin:0 0 14px">En ritar, alla gissar! Poäng baseras på antal försök.</p>
+    <div class="row">
+      <button class="btn-primary" id="goHostBtn">🚀 Skapa nytt spel</button>
+      <button id="goJoinBtn" style="padding:10px 18px;font-size:15px">🎮 Gå med i spel</button>
+    </div>
+  </div>
+
+  <!-- B: Host setup -->
+  <div id="hostSetupView" class="hidden">
+    <h3>Skapa spel</h3>
+    <div class="row" style="margin:8px 0">
+      <label>Ditt namn:</label>
+      <input id="hostNameInput" placeholder="Ditt namn" style="width:180px"/>
+    </div>
+    <div class="row" style="margin:8px 0">
+      <label>Omgångar per spelare:</label>
+      <select id="roundsPerPlayerSelect">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn-primary" id="createGameBtn">🚀 Skapa spel</button>
+      <button id="backToStartBtn" style="background:none;border:1px solid #ccc;color:#555">← Tillbaka</button>
+    </div>
+  </div>
+
+  <!-- C: Waiting room -->
+  <div id="waitingRoomView" class="hidden">
+
+    <!-- Code display (host only) -->
+    <div id="hostCodeSection" class="hidden card" style="background:#f0f8ff;border-color:#c0d8f0">
+      <div class="muted" style="margin-bottom:6px">📢 Dela koden med dina vänner!</div>
+      <div class="row">
+        <strong id="gameCodeValue" style="font-size:2em;letter-spacing:6px;font-family:monospace">——</strong>
+        <button id="copyCodeBtn">📋 Kopiera</button>
+      </div>
+    </div>
+
+    <!-- Join form (non-host players) -->
+    <div id="joinFormSection">
+      <h4 style="margin:0 0 8px">Gå med i spel</h4>
+      <div class="row" style="margin-bottom:8px">
+        <input id="joinNameInput" placeholder="Ditt namn" style="width:160px"/>
+        <input id="joinCodeInput" placeholder="Spelkod (6 siffror)" maxlength="6" style="width:180px"/>
+        <button id="joinGameBtn" class="btn-primary">Gå med →</button>
+      </div>
+    </div>
+
+    <!-- Player list -->
+    <div class="card" style="margin-top:10px">
+      <strong>Spelare i lobbyn</strong>
+      <ul id="playerList" style="margin-top:8px"></ul>
+    </div>
+
+    <!-- Host: start button -->
+    <button id="startGameBtn" class="hidden btn-primary" disabled style="margin-top:12px">
+      ⏳ Väntar på spelare (minst 2)...
+    </button>
+
+  </div>
+</div>
+
+<!-- ===== GAME VIEW ===== -->
+<div id="gameView" class="hidden box">
+
+  <div id="gameStatusText" class="muted" style="margin-bottom:8px">—</div>
+
+  <!-- Timer bar -->
+  <div id="timerBarWrap" class="hidden">
+    <div id="timerBar"><div id="timerFill" style="width:100%"></div></div>
+    <div id="timerLabel" class="muted" style="font-size:11px;text-align:right">70s</div>
+  </div>
+
+  <!-- DRAWER: word choice -->
+  <div id="wordChoiceSection" class="hidden card">
+    <strong>Du ritar! Välj ett ord:</strong>
+    <div id="wordChoiceBtns" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px"></div>
+  </div>
+
+  <!-- DRAWER: canvas to draw on -->
+  <div id="drawerSection" class="hidden">
+    <div id="canvasTools">
+      <span class="muted" style="font-size:11px">Pensel:</span>
+      <button class="brushBtn" data-size="4">S</button>
+      <button class="brushBtn" data-size="10">M</button>
+      <button class="brushBtn" data-size="20">L</button>
+      <input type="color" id="colorPicker" value="#222222"
+             style="width:36px;height:32px;padding:2px;cursor:pointer;border:1px solid var(--border)"/>
+      <button id="clearCanvasBtn">🗑️ Rensa</button>
+    </div>
+    <canvas id="drawCanvas"></canvas>
+
+    <!-- Guesses (visible to drawer too) -->
+    <div class="card" style="margin-top:10px">
+      <strong>Gissningar</strong>
+      <ul id="drawerGuessesList" style="list-style:none;padding:0;margin:6px 0"></ul>
+    </div>
+  </div>
+
+  <!-- GUESSER: view canvas + text input -->
+  <div id="guesserSection" class="hidden">
+    <canvas id="viewCanvas"></canvas>
+
+    <!-- Guess input -->
+    <div id="guessInputSection" style="margin-top:10px" class="row">
+      <input id="guessInput" placeholder="Skriv din gissning..." style="flex:1;min-width:0"/>
+      <button id="guessBtn" class="btn-primary">Gissa →</button>
+    </div>
+
+    <!-- All guesses for guesser -->
+    <div class="card" style="margin-top:10px">
+      <strong>Gissningar</strong>
+      <ul id="guesserGuessesList" style="list-style:none;padding:0;margin:6px 0"></ul>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== ROUND END VIEW ===== -->
+<div id="roundEndView" class="hidden box">
+  <div class="card">
+    <div id="roundWordReveal" style="font-size:1.4em;margin-bottom:10px"></div>
+    <strong>Omgångspoäng:</strong>
+    <ul id="roundScoreList" style="list-style:none;padding:0;margin:8px 0"></ul>
+  </div>
+  <div class="card">
+    <strong>Totalpoäng:</strong>
+    <ul id="totalScoreList" style="list-style:none;padding:0;margin:8px 0"></ul>
+  </div>
+  <button id="nextRoundBtn" class="btn-primary hidden" style="margin-top:8px">▶ Starta nästa omgång</button>
+  <div id="waitNextText" class="muted hidden" style="margin-top:8px">⏳ Väntar på att nästa ritare startar...</div>
+</div>
+
+<!-- ===== GAME END MODAL ===== -->
+<div id="gameEndModal" class="modal">
+  <div class="modal-card">
+    <h2>🏆 Slutresultat</h2>
+    <ul id="finalList" style="list-style:none;padding:0;margin:0 0 14px"></ul>
+    <button id="finalCloseBtn" style="width:100%;padding:10px;font-size:15px">Stäng</button>
+  </div>
+</div>
+
+<div id="credit">Ett spel av Jesper Pettersson</div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+// ====== Config ======
+const SERVER_URL = 'https://geo-live-server.onrender.com';
+const ROUND_DURATION_SEC = 70;
+
+// ====== State ======
+let socket = null;
+let _connectPromise = null;
+let gameId    = null;
+let myId      = null;   // socket-given player id
+let myName    = null;
+let isHost    = false;
+let isDrawer  = false;
+let currentGameCode = null;
+
+// Canvas state
+let isDrawing     = false;
+let drawColor     = '#222222';
+let drawLineWidth = 4;
+let prevDrawPoint = null;
+
+// Timer state
+let timerInterval = null;
+let timerSecondsLeft = ROUND_DURATION_SEC;
+
+// ====== DOM refs ======
+const drawCanvas = document.getElementById('drawCanvas');
+const viewCanvas = document.getElementById('viewCanvas');
+let drawCtx = null;
+let viewCtx = null;
+
+// ====== View management ======
+function showMainView(id) {
+  ['lobbyView','gameView','roundEndView'].forEach(v =>
+    document.getElementById(v).classList.toggle('hidden', v !== id)
+  );
+}
+function showLobbySubView(id) {
+  ['startView','hostSetupView','waitingRoomView'].forEach(v =>
+    document.getElementById(v).classList.toggle('hidden', v !== id)
+  );
+}
+
+// ====== Connection ======
+async function connect() {
+  if (socket) return;
+  if (!_connectPromise) {
+    _connectPromise = (async () => {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = 'Väcker servern – vänta…';
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 60000);
+        await fetch(SERVER_URL + '/health', { signal: ctrl.signal });
+        clearTimeout(tid);
+      } catch (_) { /* continue anyway */ }
+      socket = io(SERVER_URL, { transports: ['websocket'] });
+      socket.on('connect',       () => { statusEl.textContent = 'Ansluten'; myId = socket.id; });
+      socket.on('disconnect',    () => { statusEl.textContent = 'Inte ansluten'; });
+      socket.on('connect_error', e  => {
+        statusEl.textContent = 'Anslutningsfel – försöker igen…';
+        console.error('connect_error:', e.message);
+      });
+      bindSocketEvents();
+    })();
+  }
+  return _connectPromise;
+}
+
+// ====== Canvas helpers ======
+function resizeCanvas(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    canvas.width  = rect.width;
+    canvas.height = rect.height;
+  }
+}
+
+function getCanvasPos(canvas, clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) resizeCanvas(canvas);
+  const cw = canvas.width  || 1;
+  const ch = canvas.height || 1;
+  const x  = clientX - rect.left;
+  const y  = clientY - rect.top;
+  return { x, y, nx: x / cw, ny: y / ch };
+}
+
+function drawOnViewCanvas(nx, ny, drawing, color, normalizedLW) {
+  if (!viewCtx) return;
+  if (!drawing) { prevDrawPoint = { nx, ny }; return; }
+  if (!prevDrawPoint) { prevDrawPoint = { nx, ny }; return; }
+
+  const x0 = prevDrawPoint.nx * viewCanvas.width;
+  const y0 = prevDrawPoint.ny * viewCanvas.height;
+  const x1 = nx * viewCanvas.width;
+  const y1 = ny * viewCanvas.height;
+  const lw = Math.max(1, normalizedLW * viewCanvas.width);
+
+  viewCtx.strokeStyle = color;
+  viewCtx.lineWidth   = lw;
+  viewCtx.lineCap     = 'round';
+  viewCtx.lineJoin    = 'round';
+  viewCtx.beginPath();
+  viewCtx.moveTo(x0, y0);
+  viewCtx.lineTo(x1, y1);
+  viewCtx.stroke();
+
+  prevDrawPoint = { nx, ny };
+}
+
+// ====== Draw canvas events (drawer only) ======
+drawCanvas.addEventListener('mousedown', e => {
+  if (!isDrawer) return;
+  const { x, y, nx, ny } = getCanvasPos(drawCanvas, e.clientX, e.clientY);
+  isDrawing = true;
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+  socket?.emit('classic:draw', {
+    gameId, x: nx, y: ny, drawing: false,
+    color: drawColor, lineWidth: drawLineWidth / (drawCanvas.width || 1)
+  });
+});
+
+drawCanvas.addEventListener('mousemove', e => {
+  if (!isDrawing || !isDrawer) return;
+  const { x, y, nx, ny } = getCanvasPos(drawCanvas, e.clientX, e.clientY);
+  drawCtx.strokeStyle = drawColor;
+  drawCtx.lineWidth   = drawLineWidth;
+  drawCtx.lineCap     = 'round';
+  drawCtx.lineJoin    = 'round';
+  drawCtx.lineTo(x, y);
+  drawCtx.stroke();
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+  socket?.emit('classic:draw', {
+    gameId, x: nx, y: ny, drawing: true,
+    color: drawColor, lineWidth: drawLineWidth / (drawCanvas.width || 1)
+  });
+});
+
+function stopDrawing() {
+  if (!isDrawing) return;
+  isDrawing = false;
+  drawCtx?.beginPath();
+  socket?.emit('classic:draw', {
+    gameId, x: 0, y: 0, drawing: false,
+    color: drawColor, lineWidth: drawLineWidth / (drawCanvas.width || 1)
+  });
+}
+drawCanvas.addEventListener('mouseup',    stopDrawing);
+drawCanvas.addEventListener('mouseleave', stopDrawing);
+
+drawCanvas.addEventListener('touchstart', e => {
+  if (!isDrawer) return;
+  e.preventDefault();
+  const t = e.touches[0];
+  const { x, y, nx, ny } = getCanvasPos(drawCanvas, t.clientX, t.clientY);
+  isDrawing = true;
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+  socket?.emit('classic:draw', {
+    gameId, x: nx, y: ny, drawing: false,
+    color: drawColor, lineWidth: drawLineWidth / (drawCanvas.width || 1)
+  });
+}, { passive: false });
+
+drawCanvas.addEventListener('touchmove', e => {
+  if (!isDrawing || !isDrawer) return;
+  e.preventDefault();
+  const t = e.touches[0];
+  const { x, y, nx, ny } = getCanvasPos(drawCanvas, t.clientX, t.clientY);
+  drawCtx.strokeStyle = drawColor;
+  drawCtx.lineWidth   = drawLineWidth;
+  drawCtx.lineCap     = 'round';
+  drawCtx.lineJoin    = 'round';
+  drawCtx.lineTo(x, y);
+  drawCtx.stroke();
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+  socket?.emit('classic:draw', {
+    gameId, x: nx, y: ny, drawing: true,
+    color: drawColor, lineWidth: drawLineWidth / (drawCanvas.width || 1)
+  });
+}, { passive: false });
+
+drawCanvas.addEventListener('touchend', e => {
+  if (!isDrawer) return;
+  e.preventDefault();
+  stopDrawing();
+}, { passive: false });
+
+// Brush buttons
+document.querySelectorAll('.brushBtn').forEach(btn => {
+  btn.onclick = () => { drawLineWidth = parseInt(btn.dataset.size); };
+});
+document.getElementById('colorPicker').oninput = e => { drawColor = e.target.value; };
+
+document.getElementById('clearCanvasBtn').onclick = () => {
+  drawCtx?.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  socket?.emit('classic:clearCanvas', { gameId });
+};
+
+// ====== Guess input ======
+function submitGuess() {
+  const input = document.getElementById('guessInput');
+  const guess = input.value.trim();
+  if (!guess || !socket || !gameId) return;
+  socket.emit('classic:guess', { gameId, guess });
+  input.value = '';
+}
+
+document.getElementById('guessBtn').onclick = submitGuess;
+document.getElementById('guessInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitGuess();
+});
+
+// ====== Timer ======
+function startTimer() {
+  clearInterval(timerInterval);
+  timerSecondsLeft = ROUND_DURATION_SEC;
+  const fill  = document.getElementById('timerFill');
+  const label = document.getElementById('timerLabel');
+  const wrap  = document.getElementById('timerBarWrap');
+  wrap.classList.remove('hidden');
+  fill.style.width = '100%';
+  fill.style.background = 'var(--accent)';
+  label.textContent = `${timerSecondsLeft}s`;
+
+  timerInterval = setInterval(() => {
+    timerSecondsLeft--;
+    if (timerSecondsLeft <= 0) {
+      clearInterval(timerInterval);
+      timerSecondsLeft = 0;
+    }
+    const pct = (timerSecondsLeft / ROUND_DURATION_SEC) * 100;
+    fill.style.width = pct + '%';
+    fill.style.background = timerSecondsLeft <= 15 ? 'var(--red)' : 'var(--accent)';
+    label.textContent = `${timerSecondsLeft}s`;
+    document.getElementById('timerPill').textContent = `⏱ ${timerSecondsLeft}s`;
+  }, 1000);
+}
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  document.getElementById('timerBarWrap').classList.add('hidden');
+  document.getElementById('timerPill').classList.add('hidden');
+}
+
+// ====== Lobby button handlers ======
+document.getElementById('goHostBtn').onclick = () => showLobbySubView('hostSetupView');
+document.getElementById('goJoinBtn').onclick = () => {
+  showLobbySubView('waitingRoomView');
+  document.getElementById('joinFormSection').style.display = '';
+};
+document.getElementById('backToStartBtn').onclick = () => showLobbySubView('startView');
+
+document.getElementById('createGameBtn').onclick = async () => {
+  const name = document.getElementById('hostNameInput').value.trim();
+  if (!name) return alert('Skriv ditt namn.');
+  await connect();
+  myName = name;
+  isHost = true;
+  const totalRoundsPerPlayer = parseInt(document.getElementById('roundsPerPlayerSelect').value, 10) || 4;
+  socket.emit('host:createClassicGame', { totalRoundsPerPlayer, hostName: name });
+};
+
+document.getElementById('copyCodeBtn').onclick = () => {
+  const code = document.getElementById('gameCodeValue').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    const btn = document.getElementById('copyCodeBtn');
+    btn.textContent = '✅ Kopierad!';
+    setTimeout(() => { btn.textContent = '📋 Kopiera'; }, 2000);
+  });
+};
+
+document.getElementById('joinGameBtn').onclick = async () => {
+  const name = document.getElementById('joinNameInput').value.trim();
+  const code = document.getElementById('joinCodeInput').value.replace(/\D/g, '');
+  if (!name)          return alert('Skriv ditt namn.');
+  if (code.length !== 6) return alert('Skriv en giltig 6-siffrig spelkod.');
+  await connect();
+  myName = name;
+  socket.emit('player:joinClassicGame', { code, name });
+};
+
+document.getElementById('startGameBtn').onclick = () => {
+  if (socket && gameId) socket.emit('host:startClassicGame', { gameId });
+};
+
+document.getElementById('nextRoundBtn').onclick = () => {
+  if (socket && gameId) socket.emit('classic:nextRound', { gameId });
+};
+
+document.getElementById('finalCloseBtn').onclick = () => {
+  document.getElementById('gameEndModal').classList.remove('active');
+};
+
+// ====== Render helpers ======
+function renderPlayerList(players) {
+  const ul = document.getElementById('playerList');
+  ul.innerHTML = '';
+  players.forEach(p => {
+    const li = document.createElement('li');
+    li.textContent = p.name + (p.id === myId ? ' (du)' : '');
+    ul.appendChild(li);
+  });
+
+  // Enable start button when ≥2 players
+  const startBtn = document.getElementById('startGameBtn');
+  if (isHost) {
+    startBtn.disabled = players.length < 2;
+    startBtn.textContent = players.length < 2
+      ? '⏳ Väntar på spelare (minst 2)...'
+      : `▶ Starta spel (${players.length} spelare)`;
+  }
+}
+
+function appendGuessItem(listId, { playerId, playerName, guess, correct, points, grantable }) {
+  const ul = document.getElementById(listId);
+  // Remove existing entry for this player if updating
+  const existing = ul.querySelector(`[data-player="${playerId}"]`);
+  if (existing) existing.remove();
+
+  const li = document.createElement('li');
+  li.dataset.player = playerId;
+  li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #f0f0f0;gap:8px';
+
+  const nameSpan = document.createElement('span');
+  nameSpan.textContent = playerName;
+  nameSpan.style.fontWeight = '600';
+
+  const guessSpan = document.createElement('span');
+  guessSpan.className = correct ? 'guess-correct' : 'guess-wrong';
+  guessSpan.textContent = correct
+    ? `✅ "${guess}" (+${points}p)`
+    : `❌ "${guess}"`;
+
+  li.appendChild(nameSpan);
+  li.appendChild(guessSpan);
+
+  // Grant-correct button (drawer only, for wrong guesses)
+  if (grantable && !correct && isDrawer) {
+    const grantBtn = document.createElement('button');
+    grantBtn.className = 'btn-green btn-small';
+    grantBtn.textContent = '✓ Ge rätt';
+    grantBtn.onclick = () => {
+      socket?.emit('classic:grantCorrect', { gameId, targetPlayerId: playerId });
+      grantBtn.disabled = true;
+      grantBtn.textContent = '✓ Beviljad';
+    };
+    li.appendChild(grantBtn);
+  }
+
+  ul.appendChild(li);
+}
+
+function renderRoundScores(scores) {
+  // scores: [{ id, name, roundPoints, totalPoints }]
+  const roundList = document.getElementById('roundScoreList');
+  const totalList = document.getElementById('totalScoreList');
+  roundList.innerHTML = '';
+  totalList.innerHTML = '';
+
+  const sortedByRound = [...scores].sort((a, b) => b.roundPoints - a.roundPoints);
+  const sortedByTotal = [...scores].sort((a, b) => b.totalPoints - a.totalPoints);
+
+  sortedByRound.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.style.cssText = 'display:flex;justify-content:space-between;padding:6px 8px;border-bottom:1px solid #eee';
+    li.innerHTML = `<span>${i + 1}. ${escHtml(s.name)}${s.id === myId ? ' <em>(du)</em>' : ''}</span><span><strong>+${s.roundPoints}p</strong></span>`;
+    roundList.appendChild(li);
+  });
+
+  sortedByTotal.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.style.cssText = 'display:flex;justify-content:space-between;padding:6px 8px;border-bottom:1px solid #eee';
+    li.innerHTML = `<span>${i + 1}. ${escHtml(s.name)}${s.id === myId ? ' <em>(du)</em>' : ''}</span><span><strong>${s.totalPoints}p</strong></span>`;
+    totalList.appendChild(li);
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ====== Socket events ======
+function bindSocketEvents() {
+
+  // Game created (host)
+  socket.on('classicGame:created', ({ gameId: gid, code, playerId }) => {
+    gameId          = gid;
+    currentGameCode = code;
+    if (playerId) myId = playerId;
+    showLobbySubView('waitingRoomView');
+    document.getElementById('gameCodeValue').textContent = code;
+    document.getElementById('hostCodeSection').classList.remove('hidden');
+    document.getElementById('startGameBtn').classList.remove('hidden');
+    // Hide join form for host (they are already in)
+    document.getElementById('joinFormSection').style.display = 'none';
+  });
+
+  // Player joined successfully (non-host)
+  socket.on('classicGame:joined', ({ gameId: gid, playerId }) => {
+    gameId = gid;
+    myId   = playerId;
+    showLobbySubView('waitingRoomView');
+    document.getElementById('joinFormSection').style.display = 'none';
+  });
+
+  // Lobby update (all players)
+  socket.on('classicLobby:update', ({ players }) => {
+    renderPlayerList(players);
+    // Update myId from server if not set (e.g. after re-join)
+    if (!myId && myName) {
+      const me = players.find(p => p.name === myName);
+      if (me) myId = me.id;
+    }
+  });
+
+  // Round started
+  socket.on('classicRound:start', ({ roundNumber, totalRounds, drawerId, drawerName, wordOptions }) => {
+    isDrawer = (myId === drawerId || socket.id === drawerId);
+
+    document.getElementById('roundPill').textContent = `Omgång ${roundNumber}/${totalRounds}`;
+    document.getElementById('roundPill').classList.remove('hidden');
+    document.getElementById('timerPill').classList.remove('hidden');
+
+    // Reset canvas state
+    prevDrawPoint = null;
+    isDrawing     = false;
+
+    showMainView('gameView');
+
+    // Reset game sections
+    document.getElementById('wordChoiceSection').classList.add('hidden');
+    document.getElementById('drawerSection').classList.add('hidden');
+    document.getElementById('guesserSection').classList.add('hidden');
+    document.getElementById('guessInputSection').style.display = '';
+    document.getElementById('drawerGuessesList').innerHTML = '';
+    document.getElementById('guesserGuessesList').innerHTML = '';
+    document.getElementById('guessInput').value = '';
+
+    if (isDrawer) {
+      document.getElementById('gameStatusText').textContent = `Du ritar! Välj ett ord.`;
+      // Show word choices
+      const wordBtns = document.getElementById('wordChoiceBtns');
+      wordBtns.innerHTML = '';
+      (wordOptions || []).forEach((word, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'word-btn';
+        btn.textContent = word;
+        btn.onclick = () => {
+          wordBtns.innerHTML = '<span class="muted">⏳ Väntar på bekräftelse...</span>';
+          socket.emit('classic:pickWord', { gameId, wordIndex: i });
+        };
+        wordBtns.appendChild(btn);
+      });
+      document.getElementById('wordChoiceSection').classList.remove('hidden');
+
+    } else {
+      document.getElementById('gameStatusText').textContent = `${drawerName} ritar – gissa vad det är!`;
+      document.getElementById('guesserSection').classList.remove('hidden');
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        resizeCanvas(viewCanvas);
+        viewCtx = viewCanvas.getContext('2d');
+        viewCtx.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
+        prevDrawPoint = null;
+      }));
+    }
+  });
+
+  // Drawing started (word picked by drawer)
+  socket.on('classic:drawingStarted', ({ word }) => {
+    // Hide word choice, show draw canvas for drawer
+    document.getElementById('wordChoiceSection').classList.add('hidden');
+
+    if (isDrawer) {
+      document.getElementById('gameStatusText').textContent = `Du ritar: ${word}`;
+      document.getElementById('drawerSection').classList.remove('hidden');
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        resizeCanvas(drawCanvas);
+        drawCtx = drawCanvas.getContext('2d');
+        drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      }));
+    } else {
+      // Guessers: just start the timer — word is hidden until round ends
+      document.getElementById('guesserSection').classList.remove('hidden');
+    }
+
+    startTimer();
+  });
+
+  // Draw relay (from drawer to everyone else)
+  socket.on('classic:draw', ({ x, y, drawing, color, lineWidth }) => {
+    if (isDrawer) return; // drawer doesn't re-draw own strokes
+    if (!viewCanvas.width || !viewCanvas.height) resizeCanvas(viewCanvas);
+    if (!viewCtx) viewCtx = viewCanvas.getContext('2d');
+    drawOnViewCanvas(x, y, drawing, color, lineWidth);
+  });
+
+  // Clear canvas relay
+  socket.on('classic:clearCanvas', () => {
+    prevDrawPoint = null;
+    if (viewCtx) viewCtx.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
+  });
+
+  // Guess result (broadcast to all)
+  socket.on('classic:guessResult', ({ playerId, playerName, guess, correct, points }) => {
+    // Append to both lists (drawer sees guesses, guessers see guesses)
+    const isMe = (playerId === myId || playerId === socket.id);
+    appendGuessItem('drawerGuessesList', { playerId, playerName, guess, correct, points, grantable: true });
+    appendGuessItem('guesserGuessesList', { playerId, playerName, guess, correct, points, grantable: false });
+
+    // If correct guess is mine, hide guess input
+    if (isMe && correct) {
+      document.getElementById('guessInputSection').style.display = 'none';
+    }
+  });
+
+  // Round ended
+  socket.on('classic:roundEnd', ({ word, scores, nextDrawerId, nextDrawerName }) => {
+    stopTimer();
+    showMainView('roundEndView');
+
+    document.getElementById('roundWordReveal').innerHTML =
+      `Ordet var: <strong>${escHtml(word)}</strong>`;
+
+    renderRoundScores(scores);
+
+    const isNextDrawer = (nextDrawerId && (myId === nextDrawerId || socket.id === nextDrawerId));
+    const nextBtn  = document.getElementById('nextRoundBtn');
+    const waitText = document.getElementById('waitNextText');
+
+    if (isNextDrawer) {
+      nextBtn.classList.remove('hidden');
+      nextBtn.textContent = `▶ Starta nästa omgång (du ritar näst)`;
+      waitText.classList.add('hidden');
+    } else if (nextDrawerId) {
+      nextBtn.classList.add('hidden');
+      waitText.classList.remove('hidden');
+      waitText.textContent = `⏳ Väntar på att ${nextDrawerName || 'nästa ritare'} startar nästa omgång...`;
+    } else {
+      // Last round — game end event will follow shortly
+      nextBtn.classList.add('hidden');
+      waitText.classList.remove('hidden');
+      waitText.textContent = '🏁 Sista omgången klar – väntar på slutresultat...';
+    }
+  });
+
+  // Game ended
+  socket.on('classic:gameEnd', ({ finalScores }) => {
+    stopTimer();
+    const list = document.getElementById('finalList');
+    list.innerHTML = '';
+    const sorted = [...finalScores].sort((a, b) => b.totalPoints - a.totalPoints);
+    sorted.forEach((s, i) => {
+      const li = document.createElement('li');
+      li.style.cssText = 'display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee';
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+      li.innerHTML = `<span>${medal} ${escHtml(s.name)}${s.id === myId || s.id === socket.id ? ' <em>(du)</em>' : ''}</span><span><strong>${s.totalPoints}p</strong></span>`;
+      list.appendChild(li);
+    });
+    document.getElementById('gameEndModal').classList.add('active');
+  });
+
+  // Error
+  socket.on('classicGame:error', ({ message }) => {
+    alert('Fel: ' + message);
+  });
+}
+</script>
+</body>
+</html>
