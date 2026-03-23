@@ -134,6 +134,16 @@
         <option value="6">6</option>
       </select>
     </div>
+    <div class="row" style="margin:8px 0">
+      <label>Rittid per runda:</label>
+      <select id="drawTimeSec">
+        <option value="30">30 s</option>
+        <option value="45">45 s</option>
+        <option value="60" selected>60 s</option>
+        <option value="90">90 s</option>
+        <option value="120">120 s</option>
+      </select>
+    </div>
     <div class="row" style="margin-top:12px">
       <button class="btn-primary" id="createGameBtn">🚀 Skapa spel</button>
       <button id="backToStartBtn" style="background:none;border:1px solid #ccc;color:#555">← Tillbaka</button>
@@ -169,8 +179,9 @@
     </div>
 
     <!-- Host: start button -->
-    <button id="startGameBtn" class="hidden btn-primary" disabled style="margin-top:12px">
-      ⏳ Väntar på spelare (minst 2)...
+    <button id="startGameBtn" class="hidden btn-primary" disabled style="margin-top:12px"
+            title="Aktiveras när minst 2 spelare har gått med">
+      🔒 Stäng lobbyn och starta
     </button>
 
   </div>
@@ -262,7 +273,6 @@
 <script>
 // ====== Config ======
 const SERVER_URL = 'https://geo-live-server.onrender.com';
-const ROUND_DURATION_SEC = 70;
 
 // ====== State ======
 let socket = null;
@@ -273,6 +283,7 @@ let myName    = null;
 let isHost    = false;
 let isDrawer  = false;
 let currentGameCode = null;
+let roundDurationSec = 60;  // updated from server classicRound:start
 
 // Canvas state
 let isDrawing     = false;
@@ -282,7 +293,7 @@ let prevDrawPoint = null;
 
 // Timer state
 let timerInterval = null;
-let timerSecondsLeft = ROUND_DURATION_SEC;
+let timerSecondsLeft = 60;
 
 // ====== DOM refs ======
 const drawCanvas = document.getElementById('drawCanvas');
@@ -479,7 +490,7 @@ document.getElementById('guessInput').addEventListener('keydown', e => {
 // ====== Timer ======
 function startTimer() {
   clearInterval(timerInterval);
-  timerSecondsLeft = ROUND_DURATION_SEC;
+  timerSecondsLeft = roundDurationSec;
   const fill  = document.getElementById('timerFill');
   const label = document.getElementById('timerLabel');
   const wrap  = document.getElementById('timerBarWrap');
@@ -494,7 +505,7 @@ function startTimer() {
       clearInterval(timerInterval);
       timerSecondsLeft = 0;
     }
-    const pct = (timerSecondsLeft / ROUND_DURATION_SEC) * 100;
+    const pct = (timerSecondsLeft / roundDurationSec) * 100;
     fill.style.width = pct + '%';
     fill.style.background = timerSecondsLeft <= 15 ? 'var(--red)' : 'var(--accent)';
     label.textContent = `${timerSecondsLeft}s`;
@@ -523,7 +534,10 @@ document.getElementById('createGameBtn').onclick = async () => {
   myName = name;
   isHost = true;
   const totalRoundsPerPlayer = parseInt(document.getElementById('roundsPerPlayerSelect').value, 10) || 4;
-  socket.emit('host:createClassicGame', { totalRoundsPerPlayer, hostName: name });
+  const drawTimeSec = parseInt(document.getElementById('drawTimeSec').value, 10) || 60;
+  const emit = () => socket.emit('host:createClassicGame', { totalRoundsPerPlayer, hostName: name, drawTimeSec });
+  if (socket.connected) emit();
+  else socket.once('connect', emit);
 };
 
 document.getElementById('copyCodeBtn').onclick = () => {
@@ -542,7 +556,9 @@ document.getElementById('joinGameBtn').onclick = async () => {
   if (code.length !== 6) return alert('Skriv en giltig 6-siffrig spelkod.');
   await connect();
   myName = name;
-  socket.emit('player:joinClassicGame', { code, name });
+  const emit = () => socket.emit('player:joinClassicGame', { code, name });
+  if (socket.connected) emit();
+  else socket.once('connect', emit);
 };
 
 document.getElementById('startGameBtn').onclick = () => {
@@ -571,9 +587,6 @@ function renderPlayerList(players) {
   const startBtn = document.getElementById('startGameBtn');
   if (isHost) {
     startBtn.disabled = players.length < 2;
-    startBtn.textContent = players.length < 2
-      ? '⏳ Väntar på spelare (minst 2)...'
-      : `▶ Starta spel (${players.length} spelare)`;
   }
 }
 
@@ -680,8 +693,9 @@ function bindSocketEvents() {
   });
 
   // Round started
-  socket.on('classicRound:start', ({ roundNumber, totalRounds, drawerId, drawerName, wordOptions }) => {
+  socket.on('classicRound:start', ({ roundNumber, totalRounds, drawerId, drawerName, wordOptions, drawTimeSec }) => {
     isDrawer = (myId === drawerId || socket.id === drawerId);
+    roundDurationSec = drawTimeSec || 60;
 
     document.getElementById('roundPill').textContent = `Omgång ${roundNumber}/${totalRounds}`;
     document.getElementById('roundPill').classList.remove('hidden');
