@@ -110,7 +110,7 @@
   <!-- A: Start -->
   <div id="startView">
     <h3>Rita &amp; Gissa</h3>
-    <p class="muted" style="margin:0 0 14px">En ritar, alla gissar! Poäng baseras på antal försök.</p>
+    <p class="muted" style="margin:0 0 14px">En ritar, alla gissar! Poäng baseras på antal felaktiga gissningar. Ritaren får 2p (en gång).</p>
     <div class="row">
       <button class="btn-primary" id="goHostBtn">🚀 Skapa nytt spel</button>
       <button id="goJoinBtn" style="padding:10px 18px;font-size:15px">🎮 Gå med i spel</button>
@@ -594,7 +594,7 @@ function renderPlayerList(players) {
   }
 }
 
-function appendGuessItem(listId, { playerId, playerName, guess, correct, points, grantable }) {
+function appendGuessItem(listId, { playerId, playerName, guess, correct, granted, points, grantable }) {
   const ul = document.getElementById(listId);
   // Remove existing entry for this player if updating
   const existing = ul.querySelector(`[data-player="${playerId}"]`);
@@ -610,9 +610,10 @@ function appendGuessItem(listId, { playerId, playerName, guess, correct, points,
 
   const guessSpan = document.createElement('span');
   guessSpan.className = correct ? 'guess-correct' : 'guess-wrong';
+  const guessText = granted ? '✓ Rätt (gav rätt)' : escHtml(guess || '');
   guessSpan.textContent = correct
-    ? `✅ "${guess}" (+${points}p)`
-    : `❌ "${guess}"`;
+    ? `✅ ${guessText} (+${points}p)`
+    : `❌ "${escHtml(guess || '')}"`;
 
   li.appendChild(nameSpan);
   li.appendChild(guessSpan);
@@ -788,11 +789,11 @@ function bindSocketEvents() {
   });
 
   // Guess result (broadcast to all)
-  socket.on('classic:guessResult', ({ playerId, playerName, guess, correct, points }) => {
+  socket.on('classic:guessResult', ({ playerId, playerName, guess, correct, granted, points }) => {
     // Append to both lists (drawer sees guesses, guessers see guesses)
     const isMe = (playerId === myId || playerId === socket.id);
-    appendGuessItem('drawerGuessesList', { playerId, playerName, guess, correct, points, grantable: true });
-    appendGuessItem('guesserGuessesList', { playerId, playerName, guess, correct, points, grantable: false });
+    appendGuessItem('drawerGuessesList', { playerId, playerName, guess, correct, granted, points, grantable: true });
+    appendGuessItem('guesserGuessesList', { playerId, playerName, guess, correct, granted, points, grantable: false });
 
     // If correct guess is mine, hide guess input
     if (isMe && correct) {
