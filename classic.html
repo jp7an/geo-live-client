@@ -213,7 +213,7 @@
       <button class="brushBtn" data-size="20">L</button>
       <input type="color" id="colorPicker" value="#222222"
              style="width:36px;height:32px;padding:2px;cursor:pointer;border:1px solid var(--border)"/>
-      <button id="clearCanvasBtn">🗑️ Rensa</button>
+
     </div>
     <canvas id="drawCanvas"></canvas>
 
@@ -473,11 +473,6 @@ document.querySelectorAll('.brushBtn').forEach(btn => {
   btn.onclick = () => { drawLineWidth = parseInt(btn.dataset.size); };
 });
 document.getElementById('colorPicker').oninput = e => { drawColor = e.target.value; };
-
-document.getElementById('clearCanvasBtn').onclick = () => {
-  drawCtx?.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-  socket?.emit('classic:clearCanvas', { gameId });
-};
 
 // ====== Guess input ======
 function submitGuess() {
@@ -780,12 +775,6 @@ function bindSocketEvents() {
     if (!viewCanvas.width || !viewCanvas.height) resizeCanvas(viewCanvas);
     if (!viewCtx) viewCtx = viewCanvas.getContext('2d');
     drawOnViewCanvas(x, y, drawing, color, lineWidth);
-  });
-
-  // Clear canvas relay
-  socket.on('classic:clearCanvas', () => {
-    prevDrawPoint = null;
-    if (viewCtx) viewCtx.clearRect(0, 0, viewCanvas.width, viewCanvas.height);
   });
 
   // Guess result (broadcast to all)
